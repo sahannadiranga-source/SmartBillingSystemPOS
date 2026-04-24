@@ -671,7 +671,8 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <TextBlock Text="Printer Settings"
@@ -734,6 +735,53 @@
                                     <TextBlock Text="If no default printer is saved, receipt printing can fall back to the Windows print dialog."
                                    FontSize="15"/>
                                 </StackPanel>
+                            </Border>
+                            <Border Grid.Row="4"
+        Background="#FFF8FAFC"
+        BorderBrush="{StaticResource BorderBrushSoft}"
+        BorderThickness="1"
+        CornerRadius="10"
+        Padding="14"
+        Margin="0,16,0,0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Backup Settings"
+                   FontSize="20"
+                   FontWeight="Bold"
+                   Margin="0,0,0,12"/>
+
+                                    <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+                                        <TextBox x:Name="BackupFolderTextBox"
+                     Width="420"
+                     IsReadOnly="False"/>
+
+                                        <Button Content="Choose Folder"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="ChooseBackupFolder_Click"/>
+
+                                        <TextBox x:Name="BackupIntervalTextBox"
+                     Width="80"/>
+
+                                        <Button Content="Save Backup Settings"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Click="SaveBackupSettings_Click"/>
+
+                                        <Button Content="Backup Now"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="BackupNow_Click"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Grid.Row="2"
+                   x:Name="BackupStatusTextBlock"
+                   Text="Backup not configured."
+                   Foreground="{StaticResource MutedBrush}"
+                   TextWrapping="Wrap"/>
+                                </Grid>
                             </Border>
                         </Grid>
                     </Border>

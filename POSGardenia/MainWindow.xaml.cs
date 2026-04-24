@@ -1,15 +1,15 @@
 ﻿using POSGardenia.Data;
 using POSGardenia.Models;
+using POSGardenia.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Printing;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using POSGardenia.Services;
-using System.Printing;
-using POSGardenia.Services;
+using System.Windows.Threading;
 
 namespace POSGardenia
 {
@@ -25,6 +25,8 @@ namespace POSGardenia
         private readonly ReceiptPrintService _receiptPrintService = new();
         private readonly SettingsService _settingsService = new();
         private AppSettings _appSettings = new();
+        private readonly BackupService _backupService = new();
+        private DispatcherTimer? _backupTimer;
 
         private readonly ObservableCollection<PosCartLine> _cart = new();
         private List<Product> _activeProducts = new();
@@ -38,6 +40,7 @@ namespace POSGardenia
 
             LoadAppSettings();
             LoadPrinters();
+            StartAutoBackupTimer();
 
             LoadDefaultReportDates();
 
@@ -573,6 +576,7 @@ namespace POSGardenia
                 RefreshCartView();
                 RefreshAllOpenBillViews();
                 LoadReports();
+                RunBackup(showMessage: false);
             }
             catch (Exception ex)
             {
@@ -1144,6 +1148,7 @@ namespace POSGardenia
                 LoadExpensesForSelectedDate();
 
                 MessageBox.Show("Expense added.");
+                RunBackup(showMessage: false);
             }
             catch (Exception ex)
             {
@@ -1519,6 +1524,14 @@ namespace POSGardenia
             try
             {
                 _appSettings = _settingsService.Load();
+
+                BackupFolderTextBox.Text = _appSettings.BackupFolderPath ?? "";
+                BackupIntervalTextBox.Text = _appSettings.BackupIntervalMinutes.ToString();
+
+                if (!string.IsNullOrWhiteSpace(_appSettings.BackupFolderPath))
+                    BackupStatusTextBlock.Text = $"Backup folder: {_appSettings.BackupFolderPath}";
+                else
+                    BackupStatusTextBlock.Text = "Backup folder not selected.";
             }
             catch (Exception ex)
             {
@@ -1604,6 +1617,110 @@ namespace POSGardenia
         private void ReloadPrinters_Click(object sender, RoutedEventArgs e)
         {
             LoadPrinters();
+        }
+
+        private void ChooseBackupFolder_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Copy your Google Drive backup folder path and paste it into the Backup Folder box.");
+        }
+
+        private void SaveBackupSettings_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string folder = BackupFolderTextBox.Text?.Trim() ?? "";
+
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    MessageBox.Show("Select backup folder.");
+                    return;
+                }
+
+                if (!int.TryParse(BackupIntervalTextBox.Text?.Trim(), out int minutes) || minutes <= 0)
+                {
+                    MessageBox.Show("Enter valid backup interval minutes.");
+                    return;
+                }
+
+                _appSettings.BackupFolderPath = folder;
+                _appSettings.BackupIntervalMinutes = minutes;
+
+                _settingsService.Save(_appSettings);
+
+                BackupStatusTextBlock.Text = $"Backup saved. Folder: {folder} | Interval: {minutes} minutes";
+
+                StartAutoBackupTimer();
+
+                MessageBox.Show("Backup settings saved.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to save backup settings.\n" + ex.Message);
+            }
+        }
+
+        private void BackupNow_Click(object sender, RoutedEventArgs e)
+        {
+            RunBackup(showMessage: true);
+        }
+
+        private void StartAutoBackupTimer()
+        {
+            try
+            {
+                _backupTimer?.Stop();
+
+                if (_appSettings == null)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(_appSettings.BackupFolderPath))
+                {
+                    BackupStatusTextBlock.Text = "Auto backup not started. Backup folder not selected.";
+                    return;
+                }
+
+                int minutes = _appSettings.BackupIntervalMinutes <= 0
+                    ? 15
+                    : _appSettings.BackupIntervalMinutes;
+
+                _backupTimer = new DispatcherTimer();
+                _backupTimer.Interval = TimeSpan.FromMinutes(minutes);
+                _backupTimer.Tick += (s, e) => RunBackup(showMessage: false);
+                _backupTimer.Start();
+
+                BackupStatusTextBlock.Text = $"Auto backup running every {minutes} minutes.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to start auto backup.\n" + ex.Message);
+            }
+        }
+
+        private void RunBackup(bool showMessage)
+        {
+            try
+            {
+                if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.BackupFolderPath))
+                {
+                    if (showMessage)
+                        MessageBox.Show("Backup folder is not selected.");
+                    return;
+                }
+
+                string backupPath = _backupService.BackupNow(_appSettings.BackupFolderPath);
+
+                BackupStatusTextBlock.Text = $"Last backup: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{backupPath}";
+
+                if (showMessage)
+                    MessageBox.Show("Backup completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                BackupStatusTextBlock.Text = "Backup failed: " + ex.Message;
+
+                if (showMessage)
+                    MessageBox.Show("Backup failed.\n" + ex.Message);
+            }
         }
     }
 }
