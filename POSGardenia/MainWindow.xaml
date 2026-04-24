@@ -1,0 +1,667 @@
+﻿<Window x:Class="POSGardenia.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="POSGardenia"
+        MinHeight="720"
+        MinWidth="1100"
+        Height="900"
+        Width="1400"
+        WindowStartupLocation="CenterScreen"
+        Background="#FFF5F7FA">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#FF1F6FEB"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF0EA5A4"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#FFDC2626"/>
+        <SolidColorBrush x:Key="SoftBrush" Color="#FFFFFFFF"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#FF64748B"/>
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#FFE2E8F0"/>
+
+        <Style TargetType="Border" x:Key="CardStyle">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="Margin" Value="0,0,12,12"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="Button" x:Key="PrimaryButtonStyle">
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="110"/>
+        </Style>
+
+        <Style TargetType="Button" x:Key="SecondaryButtonStyle">
+            <Setter Property="Background" Value="#FFE2E8F0"/>
+            <Setter Property="Foreground" Value="#FF0F172A"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="110"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="AutoGenerateColumns" Value="True"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="MinRowHeight" Value="30"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <TabControl x:Name="MainTabControl">
+
+            <!-- POS TAB -->
+            <TabItem Header="POS">
+                <Grid Margin="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="2.2*"/>
+                        <ColumnDefinition Width="1.6*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Categories -->
+                    <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Categories"
+                                       FontSize="22"
+                                       FontWeight="Bold"
+                                       Margin="0,0,0,12"/>
+
+                            <ScrollViewer Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="CategoryButtonsPanel"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- Products -->
+                    <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <WrapPanel Margin="0,0,0,12">
+                                <TextBlock Text="Products"
+                                           FontSize="22"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SelectedCategoryTextBlock"
+                                           Text="All"
+                                           FontSize="16"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="12,4,0,0"/>
+                            </WrapPanel>
+
+                            <ScrollViewer Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <WrapPanel x:Name="ProductButtonsPanel"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- Cart -->
+                    <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="240"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Current Cart"
+                                       FontSize="22"
+                                       FontWeight="Bold"/>
+
+                            <TextBlock x:Name="PosModeTextBlock"
+                                       Grid.Row="1"
+                                       Text="Mode: New Sale"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Margin="0,8,0,12"
+                                       TextWrapping="Wrap"/>
+
+                            <DataGrid x:Name="CartDataGrid"
+                                      Grid.Row="2"
+                                      ItemsSource="{Binding}"
+                                      AutoGenerateColumns="False">
+                                <DataGrid.RowStyle>
+                                    <Style TargetType="DataGridRow">
+                                        <Setter Property="Background" Value="White"/>
+                                        <Setter Property="Foreground" Value="#FF0F172A"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsExistingItem}" Value="True">
+                                                <Setter Property="Background" Value="#FFE0F2FE"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsNewItem}" Value="True">
+                                                <Setter Property="Background" Value="#FFDCFCE7"/>
+                                            </DataTrigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter Property="Foreground" Value="Black"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGrid.RowStyle>
+
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="State" Binding="{Binding LineState}" Width="80"/>
+                                    <DataGridTextColumn Header="Item" Binding="{Binding ProductName}" Width="*"/>
+                                    <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}" Width="60"/>
+                                    <DataGridTextColumn Header="Price" Binding="{Binding UnitPrice, StringFormat=F2}" Width="80"/>
+                                    <DataGridTextColumn Header="Total" Binding="{Binding LineTotal, StringFormat=F2}" Width="90"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <WrapPanel Grid.Row="3" Margin="0,0,0,12">
+                                <Button Content="Remove Selected"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="RemoveSelectedCartItem_Click"/>
+                                <Button Content="Clear Cart"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ClearCart_Click"/>
+                            </WrapPanel>
+
+                            <TextBlock Grid.Row="4"
+                                       x:Name="CartTotalTextBlock"
+                                       Text="Cart Total: 0.00"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Margin="0,0,0,14"/>
+
+                            <TextBlock Grid.Row="5"
+                                       Text="New Table Bill"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <WrapPanel Grid.Row="6" Margin="0,0,0,12">
+                                <ComboBox x:Name="PosTableComboBox"
+                                          Width="180"
+                                          DisplayMemberPath="TableName"/>
+                                <Button Content="Open Table Bill"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Click="CreateNewTableBillFromCart_Click"/>
+                            </WrapPanel>
+
+                            <StackPanel Grid.Row="7" Margin="0,0,0,8">
+                                <TextBlock Text="Existing Open Bill"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+
+                                <WrapPanel Margin="0,0,0,12">
+                                    <ComboBox x:Name="PosExistingBillComboBox"
+                                              Width="320"
+                                              DisplayMemberPath="DisplayText"
+                                              SelectionChanged="PosExistingBillComboBox_SelectionChanged"/>
+                                    <Button Content="Add To Existing Bill"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="AddCartToExistingBill_Click"/>
+                                </WrapPanel>
+
+                                <TextBlock Text="Payment"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Margin="0,0,0,8"/>
+
+                                <WrapPanel>
+                                    <ComboBox x:Name="PosQuickPaymentMethodComboBox"
+                                                Width="140"/>
+                                    <Button Content="Pay Now"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Click="PayNowFromPos_Click"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- TABLES TAB -->
+            <TabItem Header="Tables">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <WrapPanel>
+                                <TextBlock Text="Occupied / Open Bills"
+                                           FontSize="24"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TablesOpenBillsCountTextBlock"
+                                           Text="Open Bills: 0"
+                                           FontSize="18"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Margin="18,3,0,0"
+                                           VerticalAlignment="Center"/>
+                            </WrapPanel>
+
+                            <Button Grid.Column="1"
+                                    Content="Refresh"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Click="RefreshTablesTab_Click"/>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*"/>
+                            <ColumnDefinition Width="1.8*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="Open Bills"
+                                           FontSize="22"
+                                           FontWeight="Bold"
+                                           Margin="0,0,0,12"/>
+
+                                <ScrollViewer Grid.Row="1"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="OpenBillsCardsPanel"/>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock x:Name="SelectedTableBillTitleTextBlock"
+                                           Text="Select an open bill"
+                                           FontSize="24"
+                                           FontWeight="Bold"/>
+
+                                <TextBlock x:Name="SelectedTableBillInfoTextBlock"
+                                           Grid.Row="1"
+                                           Text=""
+                                           Margin="0,8,0,8"
+                                           FontSize="15"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"/>
+
+                                <TextBlock Grid.Row="2"
+                                           Text="Bill Items"
+                                           FontSize="20"
+                                           FontWeight="SemiBold"
+                                           Margin="0,6,0,10"/>
+
+                                <DataGrid x:Name="SelectedBillItemsDataGrid"
+                                          Grid.Row="3"
+                                          AutoGenerateColumns="True"/>
+
+                                <Grid Grid.Row="4" Margin="0,12,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock x:Name="SelectedBillTotalTextBlock"
+                                               Text="Bill Total: 0.00"
+                                               FontSize="22"
+                                               FontWeight="Bold"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <WrapPanel Grid.Row="5">
+                                    <Button Content="Add More Items"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="AddMoreItemsFromTable_Click"/>
+                                    <Button Content="Open for Settlement"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Click="OpenSelectedBillForSettlement_Click"/>
+                                </WrapPanel>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- MANAGEMENT TAB -->
+            <TabItem Header="Management">
+                <Grid Margin="12">
+                    <TabControl>
+                        <TabItem Header="Categories">
+                            <Border Style="{StaticResource CardStyle}" Margin="0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Category Setup"
+                                               FontSize="24"
+                                               FontWeight="Bold"
+                                               Margin="0,0,0,16"/>
+
+                                    <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+                                        <TextBox x:Name="CategoryNameTextBox" Width="240"/>
+                                        <Button Content="Save Category"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Click="SaveCategory_Click"/>
+                                        <Button Content="Deactivate Selected"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="DeactivateSelectedCategory_Click"/>
+                                    </WrapPanel>
+
+                                    <DataGrid x:Name="CategoriesDataGrid" Grid.Row="2"/>
+                                </Grid>
+                            </Border>
+                        </TabItem>
+
+                        <TabItem Header="Products">
+                            <Border Style="{StaticResource CardStyle}" Margin="0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Product Setup"
+                                               FontSize="24"
+                                               FontWeight="Bold"
+                                               Margin="0,0,0,16"/>
+
+                                    <Grid Grid.Row="1" Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="1.1*"/>
+                                            <ColumnDefinition Width="1.3*"/>
+                                            <ColumnDefinition Width="1.7*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBox x:Name="ProductNameTextBox"
+                                                 Grid.Column="0"/>
+
+                                        <ComboBox x:Name="CategoryComboBox"
+                                                  Grid.Column="1"
+                                                  DisplayMemberPath="Name"/>
+
+                                        <TextBox x:Name="PriceTextBox"
+                                                 Grid.Column="2"/>
+
+                                        <CheckBox x:Name="KitchenItemCheckBox"
+                                                  Grid.Column="3"
+                                                  Content="Kitchen Item"
+                                                  VerticalAlignment="Center"/>
+
+                                        <WrapPanel Grid.Column="4">
+                                            <Button x:Name="SaveProductButton"
+                                                    Content="Save Product"
+                                                    Style="{StaticResource PrimaryButtonStyle}"
+                                                    Click="SaveProduct_Click"/>
+                                            <Button x:Name="ClearProductFormButton"
+                                                    Content="Clear"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Click="ClearProductFormButton_Click"/>
+                                        </WrapPanel>
+                                    </Grid>
+
+                                    <Grid Grid.Row="2">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+
+                                        <WrapPanel Margin="0,0,0,10">
+                                            <Button Content="Deactivate Selected Product"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Click="DeactivateSelectedProduct_Click"/>
+                                        </WrapPanel>
+
+                                        <DataGrid x:Name="ProductsDataGrid"
+                                                  Grid.Row="1"
+                                                  SelectionChanged="ProductsDataGrid_SelectionChanged"/>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </TabItem>
+
+                        <TabItem Header="Table Master">
+                            <Border Style="{StaticResource CardStyle}" Margin="0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Table Setup"
+                                               FontSize="24"
+                                               FontWeight="Bold"
+                                               Margin="0,0,0,16"/>
+
+                                    <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+                                        <TextBox x:Name="TableNameTextBox" Width="220"/>
+                                        <Button Content="Save Table"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Click="SaveTable_Click"/>
+                                        <Button Content="Deactivate Selected Table"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="DeactivateSelectedTable_Click"/>
+                                    </WrapPanel>
+
+                                    <DataGrid x:Name="TablesDataGrid" Grid.Row="2"/>
+                                </Grid>
+                            </Border>
+                        </TabItem>
+                    </TabControl>
+                </Grid>
+            </TabItem>
+
+            <!-- REPORTS TAB -->
+            <TabItem Header="Reports">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Reports Dashboard"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Margin="0,0,0,16"/>
+
+                    <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,16">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Selected Day Sales" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="TodaySalesTextBlock"
+                                           Text="0.00"
+                                           FontSize="28"
+                                           FontWeight="Bold"
+                                           Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Paid Bills" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="TodayBillCountTextBlock"
+                                           Text="0"
+                                           FontSize="28"
+                                           FontWeight="Bold"
+                                           Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Open Bills" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="OpenBillsCountTextBlock"
+                                           Text="0"
+                                           FontSize="28"
+                                           FontWeight="Bold"
+                                           Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Orientation="Vertical" Margin="0,0,0,12">
+                                <TextBlock Text="Daily Report"
+                                           FontSize="22"
+                                           FontWeight="Bold"
+                                           Margin="0,0,0,10"/>
+
+                                <WrapPanel>
+                                    <DatePicker x:Name="ReportDatePicker"
+                                                Width="150"
+                                                Margin="0,0,10,0"/>
+
+                                    <Button Content="Load Report"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="LoadSingleDateReport_Click"/>
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="2*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Left: Item sales -->
+                                <Grid Grid.Column="0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Item Sales"
+                                               FontSize="20"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,10"/>
+
+                                    <DataGrid x:Name="ItemSalesReportDataGrid"
+                                              Grid.Row="1"/>
+                                </Grid>
+
+                                <!-- Right: Expenses -->
+                                <Grid Grid.Column="2">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Expenses"
+                                               FontSize="20"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,10"/>
+
+                                    <WrapPanel Grid.Row="1" Margin="0,0,0,10">
+                                        <TextBox x:Name="ExpenseDescriptionTextBox"
+                                                 Width="220"
+                                                 Margin="0,0,10,10"/>
+
+                                        <TextBox x:Name="ExpenseAmountTextBox"
+                                                 Width="120"
+                                                 Margin="0,0,10,10"/>
+
+                                        <Button Content="Add Expense"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Click="AddExpenseButton_Click"/>
+                                    </WrapPanel>
+
+                                    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,0,0,10">
+                                        <TextBlock x:Name="TotalExpenseTextBlock"
+                                                   Text="Total Expenses: 0.00"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,4"/>
+
+                                        <TextBlock x:Name="NetSalesTextBlock"
+                                                   Text="Net: 0.00"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"/>
+                                    </StackPanel>
+
+                                    <DataGrid x:Name="ExpensesDataGrid"
+                                              Grid.Row="3"/>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+        </TabControl>
+    </Grid>
+</Window>
