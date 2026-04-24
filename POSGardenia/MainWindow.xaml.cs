@@ -7,6 +7,9 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using POSGardenia.Services;
+using System.Printing;
+using POSGardenia.Services;
 
 namespace POSGardenia
 {
@@ -19,6 +22,9 @@ namespace POSGardenia
         private readonly BillItemRepository _billItemRepository = new();
         private readonly PaymentRepository _paymentRepository = new();
         private readonly ExpenseRepository _expenseRepository = new();
+        private readonly ReceiptPrintService _receiptPrintService = new();
+        private readonly SettingsService _settingsService = new();
+        private AppSettings _appSettings = new();
 
         private readonly ObservableCollection<PosCartLine> _cart = new();
         private List<Product> _activeProducts = new();
@@ -29,6 +35,9 @@ namespace POSGardenia
         public MainWindow()
         {
             InitializeComponent();
+
+            LoadAppSettings();
+            LoadPrinters();
 
             LoadDefaultReportDates();
 
@@ -520,6 +529,9 @@ namespace POSGardenia
 
                     MessageBox.Show(
       $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {existingBillTotal:F2}\nMethod: {paymentMethod}");
+                    var receipt = BuildReceiptData(billId, paymentMethod, saleTypeText, tableName);
+                    _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
+
                 }
                 else
                 {
@@ -551,6 +563,9 @@ namespace POSGardenia
 
                     MessageBox.Show(
       $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nMethod: {paymentMethod}");
+                    var receipt = BuildReceiptData(billId, paymentMethod, saleTypeText, tableName);
+                    _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
+
                 }
 
                 _cart.Clear();
@@ -1469,6 +1484,126 @@ namespace POSGardenia
             {
                 MessageBox.Show("Failed to sync tables tab.\n" + ex.Message);
             }
+        }
+
+        private ReceiptData BuildReceiptData(int billId, string paymentMethod, string billTypeText, string tableName)
+        {
+            try
+            {
+                if (billId <= 0)
+                    throw new Exception("Invalid bill id.");
+
+                var items = _billItemRepository.GetReceiptLinesByBillId(billId);
+                decimal total = items.Sum(x => x.LineTotal);
+
+                return new ReceiptData
+                {
+                    BusinessName = "Smart Billing System POS",
+                    BillNo = GetVisibleBillNumber(billId),
+                    TableName = string.IsNullOrWhiteSpace(tableName) ? "Quick Sale" : tableName,
+                    BillType = billTypeText,
+                    PaymentMethod = paymentMethod,
+                    PrintedAt = DateTime.Now,
+                    Total = total,
+                    Items = items
+                };
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to build receipt data. " + ex.Message, ex);
+            }
+        }
+
+        private void LoadAppSettings()
+        {
+            try
+            {
+                _appSettings = _settingsService.Load();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to load app settings.\n" + ex.Message);
+                _appSettings = new AppSettings();
+            }
+        }
+
+        private void LoadPrinters()
+        {
+            try
+            {
+                var printServer = new LocalPrintServer();
+                var queues = printServer.GetPrintQueues();
+
+                var printerNames = queues
+                    .Select(q => q.Name)
+                    .OrderBy(x => x)
+                    .ToList();
+
+                ReceiptPrinterComboBox.ItemsSource = null;
+                ReceiptPrinterComboBox.ItemsSource = printerNames;
+
+                if (!string.IsNullOrWhiteSpace(_appSettings.ReceiptPrinterName) &&
+                    printerNames.Contains(_appSettings.ReceiptPrinterName))
+                {
+                    ReceiptPrinterComboBox.SelectedItem = _appSettings.ReceiptPrinterName;
+                    PrinterSettingsStatusTextBlock.Text = $"Saved printer: {_appSettings.ReceiptPrinterName}";
+                }
+                else
+                {
+                    PrinterSettingsStatusTextBlock.Text = "No saved receipt printer selected.";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to load printers.\n" + ex.Message);
+            }
+        }
+
+        private void SavePrinterSettings_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ReceiptPrinterComboBox.SelectedItem is not string selectedPrinter ||
+                    string.IsNullOrWhiteSpace(selectedPrinter))
+                {
+                    MessageBox.Show("Select a printer first.");
+                    return;
+                }
+
+                _appSettings.ReceiptPrinterName = selectedPrinter;
+                _settingsService.Save(_appSettings);
+
+                PrinterSettingsStatusTextBlock.Text = $"Saved printer: {selectedPrinter}";
+                MessageBox.Show("Printer settings saved.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to save printer settings.\n" + ex.Message);
+            }
+        }
+
+        private void TestReceiptPrinter_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ReceiptPrinterComboBox.SelectedItem is not string selectedPrinter ||
+                    string.IsNullOrWhiteSpace(selectedPrinter))
+                {
+                    MessageBox.Show("Select a printer first.");
+                    return;
+                }
+
+                _receiptPrintService.PrintTest(selectedPrinter);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to test printer.\n" + ex.Message);
+            }
+        }
+
+        private void ReloadPrinters_Click(object sender, RoutedEventArgs e)
+        {
+            LoadPrinters();
         }
     }
 }

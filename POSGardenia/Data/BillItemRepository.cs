@@ -336,6 +336,48 @@ namespace POSGardenia.Data
             }
         }
 
+        public List<ReceiptLine> GetReceiptLinesByBillId(int billId)
+        {
+            try
+            {
+                var lines = new List<ReceiptLine>();
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                p.Name,
+                bi.Quantity,
+                bi.UnitPrice
+            FROM BillItems bi
+            INNER JOIN Products p ON bi.ProductId = p.Id
+            WHERE bi.BillId = @billId
+              AND bi.Status = 'ACTIVE'
+            ORDER BY bi.Id;";
+
+                command.Parameters.AddWithValue("@billId", billId);
+
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    lines.Add(new ReceiptLine
+                    {
+                        ProductName = reader.GetString(0),
+                        Quantity = reader.GetDecimal(1),
+                        UnitPrice = reader.GetDecimal(2)
+                    });
+                }
+
+                return lines;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to load receipt lines. " + ex.Message, ex);
+            }
+        }
+
 
 
     }

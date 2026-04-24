@@ -662,6 +662,83 @@
                 </Grid>
             </TabItem>
 
+            <!-- Settings TAB -->
+            <TabItem Header="Settings">
+                <Grid Margin="12">
+                    <Border Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Printer Settings"
+                           FontSize="24"
+                           FontWeight="Bold"
+                           Margin="0,0,0,20"/>
+
+                            <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,16">
+                                <TextBlock Text="Default Receipt Printer"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                                <WrapPanel>
+                                    <ComboBox x:Name="ReceiptPrinterComboBox"
+                                  Width="360"/>
+
+                                    <Button Content="Save Printer"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="SavePrinterSettings_Click"/>
+
+                                    <Button Content="Test Print"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="TestReceiptPrinter_Click"/>
+
+                                    <Button Content="Reload Printers"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ReloadPrinters_Click"/>
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="2"
+                           x:Name="PrinterSettingsStatusTextBlock"
+                           Text="No printer selected."
+                           FontSize="15"
+                           Foreground="{StaticResource MutedBrush}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,16"/>
+
+                            <Border Grid.Row="3"
+                        Background="#FFF8FAFC"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Notes"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Margin="0,0,0,8"/>
+
+                                    <TextBlock Text="Use Reload Printers after connecting a new printer."
+                                   FontSize="15"
+                                   Margin="0,0,0,4"/>
+
+                                    <TextBlock Text="Use Test Print to confirm the selected receipt printer is working."
+                                   FontSize="15"
+                                   Margin="0,0,0,4"/>
+
+                                    <TextBlock Text="If no default printer is saved, receipt printing can fall back to the Windows print dialog."
+                                   FontSize="15"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
         </TabControl>
     </Grid>
 </Window>
