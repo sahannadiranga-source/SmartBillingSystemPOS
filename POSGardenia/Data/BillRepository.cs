@@ -1,6 +1,8 @@
-﻿using POSGardenia.Models;
+using Microsoft.Data.Sqlite;
+using POSGardenia.Models;
 using System;
 using System.Collections.Generic;
+
 namespace POSGardenia.Data
 {
     public class BillRepository
@@ -9,50 +11,130 @@ namespace POSGardenia.Data
         {
             try
             {
+                if (bill == null)
+                    throw new Exception("Bill is null.");
+
                 using var connection = DatabaseHelper.GetConnection();
                 connection.Open();
+                using var transaction = connection.BeginTransaction();
 
-                string billDate = DateTime.Now.ToString("yyyy-MM-dd");
-                int dailyBillNumber = GetNextDailyBillNumber(billDate);
+                string billDate = GetBillDate(bill.CreatedAt);
+                int dailyBillNumber = GetNextDailyBillNumber(connection, transaction, billDate);
+                int billId = InsertBill(connection, transaction, bill, billDate, dailyBillNumber);
 
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
-            INSERT INTO Bills (DiningTableId, BillType, Status, CreatedAt, BillDate, DailyBillNumber)
-            VALUES (@diningTableId, @billType, @status, @createdAt, @billDate, @dailyBillNumber);
-            SELECT last_insert_rowid();";
-
-                if (bill.DiningTableId.HasValue)
-                    command.Parameters.AddWithValue("@diningTableId", bill.DiningTableId.Value);
-                else
-                    command.Parameters.AddWithValue("@diningTableId", DBNull.Value);
-
-                command.Parameters.AddWithValue("@billType", bill.BillType ?? "");
-                command.Parameters.AddWithValue("@status", bill.Status ?? "");
-                command.Parameters.AddWithValue("@createdAt", bill.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
-                command.Parameters.AddWithValue("@billDate", billDate);
-                command.Parameters.AddWithValue("@dailyBillNumber", dailyBillNumber);
-
-                return Convert.ToInt32(command.ExecuteScalar());
+                transaction.Commit();
+                return billId;
             }
             catch (Exception ex)
             {
                 throw new Exception("Failed to create bill. " + ex.Message, ex);
             }
         }
+
+        public (int BillId, decimal Total) CreateQuickSaleAndSettle(
+            Bill bill,
+            List<BillItem> billItems,
+            string paymentMethod,
+            DateTime paidAt)
+        {
+            try
+            {
+                if (bill == null)
+                    throw new Exception("Bill is null.");
+
+                if (billItems == null || billItems.Count == 0)
+                    throw new Exception("No bill items to save.");
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+                using var transaction = connection.BeginTransaction();
+
+                string billDate = GetBillDate(bill.CreatedAt);
+                int dailyBillNumber = GetNextDailyBillNumber(connection, transaction, billDate);
+                int billId = InsertBill(connection, transaction, bill, billDate, dailyBillNumber);
+
+                foreach (var item in billItems)
+                {
+                    if (item == null)
+                        continue;
+
+                    item.BillId = billId;
+                    InsertBillItem(connection, transaction, item);
+                }
+
+                decimal total = GetBillTotal(connection, transaction, billId);
+                InsertPayment(connection, transaction, new Payment
+                {
+                    BillId = billId,
+                    PaymentMethod = paymentMethod,
+                    Amount = total,
+                    PaidAt = paidAt
+                });
+                SettleBill(connection, transaction, billId);
+
+                transaction.Commit();
+                return (billId, total);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to create and settle quick sale. " + ex.Message, ex);
+            }
+        }
+
+        public decimal AddItemsAndSettleBill(
+            int billId,
+            List<BillItem> newBillItems,
+            string paymentMethod,
+            DateTime paidAt)
+        {
+            try
+            {
+                if (billId <= 0)
+                    throw new Exception("Invalid bill id.");
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+                using var transaction = connection.BeginTransaction();
+
+                if (newBillItems != null)
+                {
+                    foreach (var item in newBillItems)
+                    {
+                        if (item == null)
+                            continue;
+
+                        item.BillId = billId;
+                        InsertBillItem(connection, transaction, item);
+                    }
+                }
+
+                decimal total = GetBillTotal(connection, transaction, billId);
+                InsertPayment(connection, transaction, new Payment
+                {
+                    BillId = billId,
+                    PaymentMethod = paymentMethod,
+                    Amount = total,
+                    PaidAt = paidAt
+                });
+                SettleBill(connection, transaction, billId);
+
+                transaction.Commit();
+                return total;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to settle bill. " + ex.Message, ex);
+            }
+        }
+
         public void SettleBill(int billId)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
+            using var transaction = connection.BeginTransaction();
 
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-        UPDATE Bills
-        SET Status = 'PAID'
-        WHERE Id = @billId
-          AND Status = 'OPEN';";
-
-            command.Parameters.AddWithValue("@billId", billId);
-            command.ExecuteNonQuery();
+            SettleBill(connection, transaction, billId);
+            transaction.Commit();
         }
 
         public int GetOpenBillsCount()
@@ -118,21 +200,41 @@ namespace POSGardenia.Data
 
             return bills;
         }
-        private int GetNextDailyBillNumber(string billDate)
+
+        public string GetVisibleBillNumber(int billId)
         {
-            using var connection = DatabaseHelper.GetConnection();
-            connection.Open();
+            try
+            {
+                if (billId <= 0)
+                    return $"#{billId}";
 
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-        SELECT IFNULL(MAX(DailyBillNumber), 0) + 1
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+        SELECT IFNULL(BillDate, ''), IFNULL(DailyBillNumber, 0)
         FROM Bills
-        WHERE BillDate = @billDate;";
+        WHERE Id = @billId;";
 
-            command.Parameters.AddWithValue("@billDate", billDate);
+                command.Parameters.AddWithValue("@billId", billId);
 
-            var result = command.ExecuteScalar();
-            return Convert.ToInt32(result);
+                using var reader = command.ExecuteReader();
+                if (!reader.Read())
+                    return $"#{billId}";
+
+                string billDate = reader.GetString(0);
+                int dailyBillNumber = reader.GetInt32(1);
+
+                if (string.IsNullOrWhiteSpace(billDate) || dailyBillNumber <= 0)
+                    return $"#{billId}";
+
+                return $"{billDate.Replace("-", "")}-{dailyBillNumber:D3}";
+            }
+            catch
+            {
+                return $"#{billId}";
+            }
         }
 
         public void VoidBill(int billId)
@@ -157,6 +259,140 @@ namespace POSGardenia.Data
                 throw new Exception("Failed to void bill. " + ex.Message, ex);
             }
         }
-    }
 
+        private int InsertBill(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            Bill bill,
+            string billDate,
+            int dailyBillNumber)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+            INSERT INTO Bills (DiningTableId, BillType, Status, CreatedAt, BillDate, DailyBillNumber)
+            VALUES (@diningTableId, @billType, @status, @createdAt, @billDate, @dailyBillNumber);
+            SELECT last_insert_rowid();";
+
+            if (bill.DiningTableId.HasValue)
+                command.Parameters.AddWithValue("@diningTableId", bill.DiningTableId.Value);
+            else
+                command.Parameters.AddWithValue("@diningTableId", DBNull.Value);
+
+            command.Parameters.AddWithValue("@billType", bill.BillType ?? "");
+            command.Parameters.AddWithValue("@status", string.IsNullOrWhiteSpace(bill.Status) ? "OPEN" : bill.Status);
+            command.Parameters.AddWithValue("@createdAt", bill.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+            command.Parameters.AddWithValue("@billDate", billDate);
+            command.Parameters.AddWithValue("@dailyBillNumber", dailyBillNumber);
+
+            return Convert.ToInt32(command.ExecuteScalar());
+        }
+
+        private void InsertBillItem(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            BillItem billItem)
+        {
+            if (billItem.ProductId <= 0 || billItem.Quantity <= 0)
+                return;
+
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+            INSERT INTO BillItems
+            (BillId, ProductId, UnitPrice, Quantity, Status, IsKitchenPrinted)
+            VALUES
+            (@billId, @productId, @unitPrice, @quantity, @status, @isKitchenPrinted);";
+
+            command.Parameters.AddWithValue("@billId", billItem.BillId);
+            command.Parameters.AddWithValue("@productId", billItem.ProductId);
+            command.Parameters.AddWithValue("@unitPrice", billItem.UnitPrice);
+            command.Parameters.AddWithValue("@quantity", billItem.Quantity);
+            command.Parameters.AddWithValue("@status", string.IsNullOrWhiteSpace(billItem.Status) ? "ACTIVE" : billItem.Status);
+            command.Parameters.AddWithValue("@isKitchenPrinted", billItem.IsKitchenPrinted ? 1 : 0);
+
+            command.ExecuteNonQuery();
+        }
+
+        private void InsertPayment(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            Payment payment)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+                INSERT INTO Payments (BillId, PaymentMethod, Amount, PaidAt)
+                VALUES (@billId, @paymentMethod, @amount, @paidAt);";
+
+            command.Parameters.AddWithValue("@billId", payment.BillId);
+            command.Parameters.AddWithValue("@paymentMethod", payment.PaymentMethod ?? "");
+            command.Parameters.AddWithValue("@amount", payment.Amount);
+            command.Parameters.AddWithValue("@paidAt", payment.PaidAt.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            command.ExecuteNonQuery();
+        }
+
+        private decimal GetBillTotal(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int billId)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+        SELECT IFNULL(SUM(UnitPrice * Quantity), 0)
+        FROM BillItems
+        WHERE BillId = @billId
+          AND Status = 'ACTIVE';";
+
+            command.Parameters.AddWithValue("@billId", billId);
+
+            var result = command.ExecuteScalar();
+            return Convert.ToDecimal(result);
+        }
+
+        private void SettleBill(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int billId)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+        UPDATE Bills
+        SET Status = 'PAID'
+        WHERE Id = @billId
+          AND Status = 'OPEN';";
+
+            command.Parameters.AddWithValue("@billId", billId);
+
+            if (command.ExecuteNonQuery() == 0)
+                throw new Exception("Bill is not open or was not found.");
+        }
+
+        private int GetNextDailyBillNumber(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string billDate)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+        SELECT IFNULL(MAX(DailyBillNumber), 0) + 1
+        FROM Bills
+        WHERE BillDate = @billDate;";
+
+            command.Parameters.AddWithValue("@billDate", billDate);
+
+            var result = command.ExecuteScalar();
+            return Convert.ToInt32(result);
+        }
+
+        private string GetBillDate(DateTime createdAt)
+        {
+            var date = createdAt == default ? DateTime.Now : createdAt;
+            return date.ToString("yyyy-MM-dd");
+        }
+    }
 }

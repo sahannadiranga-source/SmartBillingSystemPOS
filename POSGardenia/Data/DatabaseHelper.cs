@@ -13,7 +13,7 @@ namespace POSGardenia.Data
             Path.Combine(DbFolder, "posgardenia.db");
 
         private static readonly string ConnectionString =
-            $"Data Source={DbPath};Default Timeout=10;";
+            $"Data Source={DbPath};Default Timeout=10;Foreign Keys=True;";
 
         public static string GetDatabasePath() => DbPath;
 

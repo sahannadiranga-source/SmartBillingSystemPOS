@@ -91,16 +91,7 @@ namespace POSGardenia
         {
             try
             {
-                if (billId <= 0)
-                    return $"#{billId}";
-
-                var bill = _billRepository.GetOpenBillsForDisplay()
-                    .FirstOrDefault(x => x.Id == billId);
-
-                if (bill != null && !string.IsNullOrWhiteSpace(bill.VisibleBillNumber))
-                    return bill.VisibleBillNumber;
-
-                return $"#{billId}";
+                return _billRepository.GetVisibleBillNumber(billId);
             }
             catch
             {
@@ -306,28 +297,15 @@ namespace POSGardenia
                 if (_cart == null || _cart.Count == 0)
                     throw new Exception("Cart is empty.");
 
-                var newLines = _cart.Where(x => x != null && !x.IsExistingItem).ToList();
+                var newBillItems = BuildNewBillItemsFromCart();
 
-                if (newLines.Count == 0)
+                if (newBillItems.Count == 0)
                     throw new Exception("No new items to save.");
 
-                foreach (var line in newLines)
+                foreach (var item in newBillItems)
                 {
-                    if (line.ProductId <= 0)
-                        continue;
-
-                    if (line.Quantity <= 0)
-                        continue;
-
-                    _billItemRepository.Add(new BillItem
-                    {
-                        BillId = billId,
-                        ProductId = line.ProductId,
-                        UnitPrice = line.UnitPrice,
-                        Quantity = line.Quantity,
-                        Status = "ACTIVE",
-                        IsKitchenPrinted = false
-                    });
+                    item.BillId = billId;
+                    _billItemRepository.Add(item);
                 }
             }
             catch (Exception ex)
@@ -335,6 +313,32 @@ namespace POSGardenia
                 throw new Exception("Failed to save cart items to bill. " + ex.Message, ex);
             }
         }
+
+        private List<BillItem> BuildNewBillItemsFromCart()
+        {
+            var billItems = new List<BillItem>();
+
+            if (_cart == null || _cart.Count == 0)
+                return billItems;
+
+            foreach (var line in _cart.Where(x => x != null && !x.IsExistingItem))
+            {
+                if (line.ProductId <= 0 || line.Quantity <= 0)
+                    continue;
+
+                billItems.Add(new BillItem
+                {
+                    ProductId = line.ProductId,
+                    UnitPrice = line.UnitPrice,
+                    Quantity = line.Quantity,
+                    Status = "ACTIVE",
+                    IsKitchenPrinted = false
+                });
+            }
+
+            return billItems;
+        }
+
         private void CreateNewTableBillFromCart_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -518,24 +522,11 @@ namespace POSGardenia
                     tableName = GetBillTableName(billId);
                     string visibleBillNo = GetVisibleBillNumber(billId);
 
-                    decimal existingBillTotal = _billItemRepository.GetBillTotal(billId);
-
-                    var newLines = _cart.Where(x => x != null && !x.IsExistingItem).ToList();
-                    if (newLines.Count > 0)
-                    {
-                        SaveCartItemsToBill(billId);
-                        existingBillTotal = _billItemRepository.GetBillTotal(billId);
-                    }
-
-                    _paymentRepository.Add(new Payment
-                    {
-                        BillId = billId,
-                        PaymentMethod = paymentMethod,
-                        Amount = existingBillTotal,
-                        PaidAt = DateTime.Now
-                    });
-
-                    _billRepository.SettleBill(billId);
+                    decimal existingBillTotal = _billRepository.AddItemsAndSettleBill(
+                        billId,
+                        BuildNewBillItemsFromCart(),
+                        paymentMethod,
+                        DateTime.Now);
 
                     MessageBox.Show(
       $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {existingBillTotal:F2}\nMethod: {paymentMethod}");
@@ -553,23 +544,18 @@ namespace POSGardenia
                         CreatedAt = DateTime.Now
                     };
 
-                    billId = _billRepository.Create(bill);
-                    SaveCartItemsToBill(billId);
+                    var result = _billRepository.CreateQuickSaleAndSettle(
+                        bill,
+                        BuildNewBillItemsFromCart(),
+                        paymentMethod,
+                        DateTime.Now);
+
+                    billId = result.BillId;
                     string visibleBillNo = GetVisibleBillNumber(billId);
 
-                    decimal total = _cart.Sum(x => x?.LineTotal ?? 0);
+                    decimal total = result.Total;
                     saleTypeText = "Quick Sale";
                     tableName = "Quick Sale";
-
-                    _paymentRepository.Add(new Payment
-                    {
-                        BillId = billId,
-                        PaymentMethod = paymentMethod,
-                        Amount = total,
-                        PaidAt = DateTime.Now
-                    });
-
-                    _billRepository.SettleBill(billId);
 
                     MessageBox.Show(
       $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nMethod: {paymentMethod}");

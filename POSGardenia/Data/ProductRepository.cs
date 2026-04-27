@@ -74,10 +74,12 @@ namespace POSGardenia.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-        SELECT Id, Name, CategoryId, SellingPrice, IsKitchenItem, IsActive
-        FROM Products
-        WHERE IsActive = 1
-        ORDER BY Name;";
+        SELECT p.Id, p.Name, p.CategoryId, p.SellingPrice, p.IsKitchenItem, p.IsActive
+        FROM Products p
+        INNER JOIN Categories c ON p.CategoryId = c.Id
+        WHERE p.IsActive = 1
+          AND c.IsActive = 1
+        ORDER BY p.Name;";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
