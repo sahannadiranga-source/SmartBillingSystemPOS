@@ -28,12 +28,17 @@ namespace POSGardenia
         private readonly BackupService _backupService = new();
         private DispatcherTimer? _backupTimer;
 
+        private readonly DailyReportService _dailyReportService = new();
+        private DispatcherTimer? _dailyReportTimer;
+        private DateTime? _lastDailyReportGeneratedDate = null;
+
         private readonly ObservableCollection<PosCartLine> _cart = new();
         private List<Product> _activeProducts = new();
         private int? _selectedCategoryId = null;
         private int? _currentTargetBillId = null;
         private ProductDisplay? _selectedManagementProduct = null;
         private OpenBillDisplay? _selectedTablesBill = null;
+        private int? _editingExpenseId = null;
         public MainWindow()
         {
             InitializeComponent();
@@ -41,6 +46,8 @@ namespace POSGardenia
             LoadAppSettings();
             LoadPrinters();
             StartAutoBackupTimer();
+            StartDailyReportTimer();
+            GenerateMissingYesterdayReportIfNeeded();
 
             LoadDefaultReportDates();
 
@@ -1116,7 +1123,6 @@ namespace POSGardenia
                 string reportDate = selectedDate.ToString("yyyy-MM-dd");
 
                 string description = ExpenseDescriptionTextBox.Text?.Trim() ?? "";
-               
 
                 if (string.IsNullOrWhiteSpace(description))
                 {
@@ -1126,11 +1132,11 @@ namespace POSGardenia
 
                 if (!decimal.TryParse(ExpenseAmountTextBox.Text?.Trim(), out decimal amount) || amount <= 0)
                 {
-                    MessageBox.Show("Enter valid expense amount.");
+                    MessageBox.Show("Enter valid amount.");
                     return;
                 }
 
-                var expense = new Expense
+                var exp = new Expense
                 {
                     ExpenseDate = reportDate,
                     Description = description,
@@ -1138,21 +1144,27 @@ namespace POSGardenia
                     CreatedAt = DateTime.Now
                 };
 
-                _expenseRepository.Add(expense);
+                // 🔥 THIS IS THE NEW LOGIC
+                if (_editingExpenseId.HasValue)
+                {
+                    exp.Id = _editingExpenseId.Value;
+                    _expenseRepository.Update(exp);
+                    _editingExpenseId = null;
+                }
+                else
+                {
+                    _expenseRepository.Add(exp);
+                }
 
                 ExpenseDescriptionTextBox.Clear();
                 ExpenseAmountTextBox.Clear();
-               
 
                 LoadReports();
-                LoadExpensesForSelectedDate();
-
-                MessageBox.Show("Expense added.");
-                RunBackup(showMessage: false);
+                RunBackup(false);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to add expense.\n" + ex.Message);
+                MessageBox.Show("Error: " + ex.Message);
             }
         }
         private void ClearProductForm()
@@ -1532,6 +1544,16 @@ namespace POSGardenia
                     BackupStatusTextBlock.Text = $"Backup folder: {_appSettings.BackupFolderPath}";
                 else
                     BackupStatusTextBlock.Text = "Backup folder not selected.";
+
+                DailyReportFolderTextBox.Text = _appSettings.DailyReportFolderPath ?? "";
+                DailyReportTimeTextBox.Text = string.IsNullOrWhiteSpace(_appSettings.DailyReportTime)
+                    ? "23:00"
+                    : _appSettings.DailyReportTime;
+
+                if (!string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
+                    DailyReportStatusTextBlock.Text = $"Daily report folder: {_appSettings.DailyReportFolderPath}";
+                else
+                    DailyReportStatusTextBlock.Text = "Daily report folder not selected.";
             }
             catch (Exception ex)
             {
@@ -1539,6 +1561,8 @@ namespace POSGardenia
                 _appSettings = new AppSettings();
             }
         }
+
+
 
         private void LoadPrinters()
         {
@@ -1569,6 +1593,177 @@ namespace POSGardenia
             catch (Exception ex)
             {
                 MessageBox.Show("Failed to load printers.\n" + ex.Message);
+            }
+        }
+        private void ChooseDailyReportFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+
+
+                
+                    MessageBox.Show("Select Google Drive synced daily report folder");
+                
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to choose daily report folder.\n" + ex.Message);
+            }
+        }
+
+        private void SaveDailyReportSettings_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string folder = DailyReportFolderTextBox.Text?.Trim() ?? "";
+                string reportTime = DailyReportTimeTextBox.Text?.Trim() ?? "";
+
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    MessageBox.Show("Select daily report folder.");
+                    return;
+                }
+
+                if (!TimeSpan.TryParse(reportTime, out _))
+                {
+                    MessageBox.Show("Enter valid report time. Example: 23:00");
+                    return;
+                }
+
+                _appSettings.DailyReportFolderPath = folder;
+                _appSettings.DailyReportTime = reportTime;
+
+                _settingsService.Save(_appSettings);
+
+                DailyReportStatusTextBlock.Text = $"Daily report saved. Folder: {folder} | Time: {reportTime}";
+
+                StartDailyReportTimer();
+
+                MessageBox.Show("Daily report settings saved.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to save daily report settings.\n" + ex.Message);
+            }
+        }
+
+        private void GenerateTodayReport_Click(object sender, RoutedEventArgs e)
+        {
+            GenerateDailyReportForDate(DateTime.Today, showMessage: true);
+        }
+
+        private void StartDailyReportTimer()
+        {
+            try
+            {
+                _dailyReportTimer?.Stop();
+
+                if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
+                {
+                    DailyReportStatusTextBlock.Text = "Daily report auto generation not started. Folder not selected.";
+                    return;
+                }
+
+                _dailyReportTimer = new DispatcherTimer();
+                _dailyReportTimer.Interval = TimeSpan.FromMinutes(1);
+                _dailyReportTimer.Tick += (s, e) => CheckDailyReportSchedule();
+                _dailyReportTimer.Start();
+
+                DailyReportStatusTextBlock.Text =
+                    $"Daily report auto generation running. Time: {_appSettings.DailyReportTime}";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to start daily report timer.\n" + ex.Message);
+            }
+        }
+
+        private void CheckDailyReportSchedule()
+        {
+            try
+            {
+                if (_appSettings == null)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
+                    return;
+
+                string reportTimeText = string.IsNullOrWhiteSpace(_appSettings.DailyReportTime)
+                    ? "23:00"
+                    : _appSettings.DailyReportTime;
+
+                if (!TimeSpan.TryParse(reportTimeText, out TimeSpan reportTime))
+                    return;
+
+                DateTime now = DateTime.Now;
+
+                if (now.TimeOfDay.Hours == reportTime.Hours &&
+                    now.TimeOfDay.Minutes == reportTime.Minutes)
+                {
+                    if (_lastDailyReportGeneratedDate.HasValue &&
+                        _lastDailyReportGeneratedDate.Value.Date == now.Date)
+                    {
+                        return;
+                    }
+
+                    GenerateDailyReportForDate(now.Date, showMessage: false);
+                    _lastDailyReportGeneratedDate = now.Date;
+                }
+            }
+            catch (Exception ex)
+            {
+                DailyReportStatusTextBlock.Text = "Daily report schedule failed: " + ex.Message;
+            }
+        }
+
+        private void GenerateMissingYesterdayReportIfNeeded()
+        {
+            try
+            {
+                if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
+                    return;
+
+                DateTime yesterday = DateTime.Today.AddDays(-1);
+
+                bool exists = _dailyReportService.ReportExists(_appSettings.DailyReportFolderPath, yesterday);
+
+                if (!exists)
+                {
+                    string filePath = _dailyReportService.GenerateDailyReport(_appSettings.DailyReportFolderPath, yesterday);
+                    DailyReportStatusTextBlock.Text = $"Missing yesterday report generated:\n{filePath}";
+                }
+            }
+            catch
+            {
+                // do not block app startup
+            }
+        }
+
+        private void GenerateDailyReportForDate(DateTime date, bool showMessage)
+        {
+            try
+            {
+                if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
+                {
+                    if (showMessage)
+                        MessageBox.Show("Daily report folder is not selected.");
+                    return;
+                }
+
+                string filePath = _dailyReportService.GenerateDailyReport(_appSettings.DailyReportFolderPath, date);
+
+                DailyReportStatusTextBlock.Text =
+                    $"Daily report generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{filePath}";
+
+                if (showMessage)
+                    MessageBox.Show("Daily report generated successfully.");
+            }
+            catch (Exception ex)
+            {
+                DailyReportStatusTextBlock.Text = "Daily report failed: " + ex.Message;
+
+                if (showMessage)
+                    MessageBox.Show("Daily report failed.\n" + ex.Message);
             }
         }
 
@@ -1722,5 +1917,140 @@ namespace POSGardenia
                     MessageBox.Show("Backup failed.\n" + ex.Message);
             }
         }
+
+        public void Delete(int id)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM Expenses WHERE Id = @id";
+            command.Parameters.AddWithValue("@id", id);
+
+            command.ExecuteNonQuery();
+        }
+
+     
+        private void DeleteExpense_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ExpensesDataGrid.SelectedItem is not Expense exp)
+                {
+                    MessageBox.Show("Select expense.");
+                    return;
+                }
+
+                var confirm = MessageBox.Show(
+                    "Delete this expense?",
+                    "Confirm",
+                    MessageBoxButton.YesNo);
+
+                if (confirm != MessageBoxResult.Yes)
+                    return;
+
+                _expenseRepository.Delete(exp.Id);
+
+                LoadReports();
+                RunBackup(false);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private void EditExpense_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ExpensesDataGrid.SelectedItem is not Expense exp)
+                {
+                    MessageBox.Show("Select expense.");
+                    return;
+                }
+
+                ExpenseDescriptionTextBox.Text = exp.Description;
+                ExpenseAmountTextBox.Text = exp.Amount.ToString();
+
+                _editingExpenseId = exp.Id;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private void CancelCartItem_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (CartDataGrid.SelectedItem is not PosCartLine item)
+                {
+                    MessageBox.Show("Select item.");
+                    return;
+                }
+
+                var confirm = MessageBox.Show(
+                    "Cancel selected item?",
+                    "Confirm",
+                    MessageBoxButton.YesNo);
+
+                if (confirm != MessageBoxResult.Yes)
+                    return;
+
+                if (item.IsExistingItem && item.BillItemId.HasValue)
+                {
+                    _billItemRepository.CancelItem(item.BillItemId.Value);
+
+                    if (_currentTargetBillId.HasValue)
+                        LoadBillIntoCart(_currentTargetBillId.Value);
+
+                    RefreshAllOpenBillViews();
+                }
+                else
+                {
+                    _cart.Remove(item);
+                    RefreshCartView();
+                }
+
+                RunBackup(false);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to cancel item.\n" + ex.Message);
+            }
+        }
+
+        private void VoidBill_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_selectedTablesBill == null)
+                {
+                    MessageBox.Show("Select bill.");
+                    return;
+                }
+
+                var confirm = MessageBox.Show(
+                    "Void this bill?",
+                    "Confirm",
+                    MessageBoxButton.YesNo);
+
+                if (confirm != MessageBoxResult.Yes)
+                    return;
+
+                _billRepository.VoidBill(_selectedTablesBill.Id);
+
+                RefreshAllOpenBillViews();
+                RunBackup(false);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+       
     }
 }

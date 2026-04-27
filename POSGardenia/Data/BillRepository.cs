@@ -134,5 +134,29 @@ namespace POSGardenia.Data
             var result = command.ExecuteScalar();
             return Convert.ToInt32(result);
         }
+
+        public void VoidBill(int billId)
+        {
+            try
+            {
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            UPDATE Bills
+            SET Status = 'VOID'
+            WHERE Id = @id
+              AND Status = 'OPEN';";
+
+                command.Parameters.AddWithValue("@id", billId);
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to void bill. " + ex.Message, ex);
+            }
+        }
     }
+
 }

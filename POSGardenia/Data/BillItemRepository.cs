@@ -378,7 +378,27 @@ namespace POSGardenia.Data
             }
         }
 
+        public void CancelItem(int billItemId)
+        {
+            try
+            {
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
 
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            UPDATE BillItems
+            SET Status = 'CANCELLED'
+            WHERE Id = @id;";
+
+                command.Parameters.AddWithValue("@id", billItemId);
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to cancel bill item. " + ex.Message, ex);
+            }
+        }
 
     }
 }

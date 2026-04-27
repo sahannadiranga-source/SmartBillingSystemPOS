@@ -373,6 +373,10 @@
                                     <Button Content="Open for Settlement"
                                             Style="{StaticResource PrimaryButtonStyle}"
                                             Click="OpenSelectedBillForSettlement_Click"/>
+                                    <Button Content="Void Bill"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="VoidBill_Click"/>            
+
                                 </WrapPanel>
                             </Grid>
                         </Border>
@@ -651,10 +655,21 @@
                                                    Text="Net: 0.00"
                                                    FontSize="16"
                                                    FontWeight="SemiBold"/>
+                                        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
+                                            <Button Content="Edit Selected"
+            Style="{StaticResource SecondaryButtonStyle}"
+            Click="EditExpense_Click"/>
+
+                                            <Button Content="Delete Selected"
+            Style="{StaticResource SecondaryButtonStyle}"
+            Click="DeleteExpense_Click"/>
+                                        </WrapPanel>
                                     </StackPanel>
 
                                     <DataGrid x:Name="ExpensesDataGrid"
-                                              Grid.Row="3"/>
+                                              Grid.Row="3"
+                                              SelectionMode="Single"
+                                              AutoGenerateColumns="True"/>
                                 </Grid>
                             </Grid>
                         </Grid>
@@ -668,6 +683,7 @@
                     <Border Style="{StaticResource CardStyle}">
                         <Grid>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -782,9 +798,62 @@
                    Foreground="{StaticResource MutedBrush}"
                    TextWrapping="Wrap"/>
                                 </Grid>
+                                
+                                
+                                
                             </Border>
+                            <Border Grid.Row="5"
+                                Background="#FFF8FAFC"
+        BorderBrush="{StaticResource BorderBrushSoft}"
+        BorderThickness="1"
+        CornerRadius="10"
+        Padding="14"
+        Margin="0,16,0,0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Text="Daily Report Settings"
+                   FontSize="20"
+                   FontWeight="Bold"
+                   Margin="0,0,0,12"/>
+
+                                    <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+                                        <TextBox x:Name="DailyReportFolderTextBox"
+                     Width="420"
+                     IsReadOnly="False"/>
+
+                                        <Button Content="Choose Folder"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="ChooseDailyReportFolder_Click"/>
+
+                                        <TextBox x:Name="DailyReportTimeTextBox"
+                     Width="90"/>
+
+                                        <Button Content="Save Report Settings"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Click="SaveDailyReportSettings_Click"/>
+
+                                        <Button Content="Generate Today Report"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Click="GenerateTodayReport_Click"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Grid.Row="2"
+                   x:Name="DailyReportStatusTextBlock"
+                   Text="Daily report not configured."
+                   Foreground="{StaticResource MutedBrush}"
+                   TextWrapping="Wrap"/>
+                                </Grid>
+                            </Border>
+
                         </Grid>
+                        
                     </Border>
+                    
                 </Grid>
             </TabItem>
         </TabControl>

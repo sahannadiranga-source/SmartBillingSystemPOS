@@ -96,5 +96,53 @@ namespace POSGardenia.Data
                 throw new Exception("Failed to get total expenses by date. " + ex.Message, ex);
             }
         }
+
+        public void Delete(int id)
+        {
+            try
+            {
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = "DELETE FROM Expenses WHERE Id = @id";
+                command.Parameters.AddWithValue("@id", id);
+
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to delete expense. " + ex.Message, ex);
+            }
+        }
+
+        public void Update(Expense expense)
+        {
+            try
+            {
+                if (expense == null)
+                    throw new Exception("Expense is null.");
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            UPDATE Expenses
+            SET Description = @description,
+                Amount = @amount
+            WHERE Id = @id;";
+
+                command.Parameters.AddWithValue("@description", expense.Description ?? "");
+                command.Parameters.AddWithValue("@amount", expense.Amount);
+                command.Parameters.AddWithValue("@id", expense.Id);
+
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to update expense. " + ex.Message, ex);
+            }
+        }
     }
 }
