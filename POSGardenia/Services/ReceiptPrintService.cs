@@ -75,7 +75,7 @@ namespace POSGardenia.Services
             {
                 var testReceipt = new ReceiptData
                 {
-                    BusinessName = "Smart Billing System POS",
+                    BusinessName = "Gardenia Restaurant",
                     BillNo = "TEST-001",
                     TableName = "Test",
                     BillType = "TEST PRINT",

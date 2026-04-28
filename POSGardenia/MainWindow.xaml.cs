@@ -39,6 +39,8 @@ namespace POSGardenia
         private ProductDisplay? _selectedManagementProduct = null;
         private OpenBillDisplay? _selectedTablesBill = null;
         private int? _editingExpenseId = null;
+
+        private BillHistoryDisplay? _selectedHistoryBill = null;
         public MainWindow()
         {
             InitializeComponent();
@@ -50,6 +52,8 @@ namespace POSGardenia
             GenerateMissingYesterdayReportIfNeeded();
 
             LoadDefaultReportDates();
+
+            BillHistoryDatePicker.SelectedDate = DateTime.Today;
 
             LoadCategories();
             LoadCategoriesGrid();
@@ -784,6 +788,9 @@ namespace POSGardenia
                 ItemSalesReportDataGrid.ItemsSource = null;
                 ItemSalesReportDataGrid.ItemsSource = _billItemRepository.GetItemSalesReportBySingleDate(reportDate);
 
+                PaymentBreakdownDataGrid.ItemsSource = null;
+                PaymentBreakdownDataGrid.ItemsSource = _paymentRepository.GetPaymentBreakdownBySingleDate(reportDate);
+
                 LoadExpensesForSelectedDate();
             }
             catch (Exception ex)
@@ -1501,8 +1508,8 @@ namespace POSGardenia
 
                 return new ReceiptData
                 {
-                    BusinessName = "Smart Billing System POS",
-                    BillNo = GetVisibleBillNumber(billId),
+                    BusinessName = "Gardenia Restaurant",
+                    BillNo = _billRepository.GetVisibleBillNumber(billId),
                     TableName = string.IsNullOrWhiteSpace(tableName) ? "Quick Sale" : tableName,
                     BillType = billTypeText,
                     PaymentMethod = paymentMethod,
@@ -2037,6 +2044,115 @@ namespace POSGardenia
             }
         }
 
-       
+
+        private void SearchBillHistoryByDate_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var selectedDate = BillHistoryDatePicker.SelectedDate ?? DateTime.Today;
+                string dateText = selectedDate.ToString("yyyy-MM-dd");
+
+                var bills = _billRepository.GetBillHistoryByDate(dateText);
+
+                BillHistoryDataGrid.ItemsSource = null;
+                BillHistoryDataGrid.ItemsSource = bills;
+
+                BillHistoryItemsDataGrid.ItemsSource = null;
+                BillHistorySelectedTitleTextBlock.Text = "Select a bill";
+                _selectedHistoryBill = null;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to search bill history by date.\n" + ex.Message);
+            }
+        }
+
+        private void SearchBillHistoryByNumber_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string searchText = BillHistorySearchTextBox.Text?.Trim() ?? "";
+
+                if (string.IsNullOrWhiteSpace(searchText))
+                {
+                    MessageBox.Show("Enter bill number or internal bill id.");
+                    return;
+                }
+
+                var bills = _billRepository.SearchBillHistoryByVisibleBillNumber(searchText);
+
+                BillHistoryDataGrid.ItemsSource = null;
+                BillHistoryDataGrid.ItemsSource = bills;
+
+                BillHistoryItemsDataGrid.ItemsSource = null;
+                BillHistorySelectedTitleTextBlock.Text = "Select a bill";
+                _selectedHistoryBill = null;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to search bill history by number.\n" + ex.Message);
+            }
+        }
+
+        private void BillHistoryDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                if (BillHistoryDataGrid.SelectedItem is not BillHistoryDisplay selectedBill)
+                    return;
+
+                _selectedHistoryBill = selectedBill;
+
+                BillHistorySelectedTitleTextBlock.Text =
+                    $"Bill No: {selectedBill.VisibleBillNumber} | {selectedBill.Status}";
+
+                BillHistoryItemsDataGrid.ItemsSource = null;
+                BillHistoryItemsDataGrid.ItemsSource = _billItemRepository.GetByBillIdForDisplay(selectedBill.Id);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to load bill history items.\n" + ex.Message);
+            }
+        }
+
+        private void ReprintSelectedBillReceipt_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_selectedHistoryBill == null)
+                {
+                    MessageBox.Show("Select a bill first.");
+                    return;
+                }
+
+                if (_selectedHistoryBill.Status == "VOID")
+                {
+                    var confirm = MessageBox.Show(
+                        "This bill is VOID. Reprint anyway?",
+                        "Confirm Reprint",
+                        MessageBoxButton.YesNo);
+
+                    if (confirm != MessageBoxResult.Yes)
+                        return;
+                }
+
+                string paymentMethod = string.IsNullOrWhiteSpace(_selectedHistoryBill.PaymentMethod)
+                    ? "N/A"
+                    : _selectedHistoryBill.PaymentMethod;
+
+                var receipt = BuildReceiptData(
+                    _selectedHistoryBill.Id,
+                    paymentMethod,
+                    _selectedHistoryBill.BillType,
+                    _selectedHistoryBill.TableName);
+
+                _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to reprint receipt.\n" + ex.Message);
+            }
+        }
+
     }
 }

@@ -32,12 +32,13 @@ namespace POSGardenia.Services
                 decimal expenses = _expenseRepository.GetTotalByDate(dateText);
                 decimal net = sales - expenses;
 
+                var paymentBreakdown = _paymentRepository.GetPaymentBreakdownBySingleDate(dateText);
                 var soldItems = _billItemRepository.GetItemSalesReportBySingleDate(dateText);
                 var expenseList = _expenseRepository.GetByDate(dateText);
 
                 var sb = new StringBuilder();
 
-                sb.AppendLine("SMART BILLING SYSTEM POS");
+                sb.AppendLine("Gardenia Restaurant");
                 sb.AppendLine("DAILY SALES REPORT");
                 sb.AppendLine("----------------------------------------");
                 sb.AppendLine($"Date           : {dateText}");
@@ -47,6 +48,33 @@ namespace POSGardenia.Services
                 sb.AppendLine($"Paid Bills     : {paidBills}");
                 sb.AppendLine($"Total Expenses : {expenses:0.00}");
                 sb.AppendLine($"Net Sale       : {net:0.00}");
+                sb.AppendLine("----------------------------------------");
+                sb.AppendLine();
+                sb.AppendLine("PAYMENT BREAKDOWN");
+                sb.AppendLine("----------------------------------------");
+
+                decimal breakdownTotal = 0;
+
+                if (paymentBreakdown == null || paymentBreakdown.Count == 0)
+                {
+                    sb.AppendLine("No payments.");
+                }
+                else
+                {
+                    foreach (var payment in paymentBreakdown)
+                    {
+                        string method = string.IsNullOrWhiteSpace(payment.PaymentMethod)
+                            ? "UNKNOWN"
+                            : payment.PaymentMethod;
+
+                        sb.AppendLine($"{method}: {payment.TotalAmount:0.00}");
+                        breakdownTotal += payment.TotalAmount;
+                    }
+
+                    sb.AppendLine("----------------------------------------");
+                    sb.AppendLine($"Total: {breakdownTotal:0.00}");
+                }
+
                 sb.AppendLine("----------------------------------------");
                 sb.AppendLine();
                 sb.AppendLine("SOLD ITEMS");

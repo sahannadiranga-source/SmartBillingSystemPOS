@@ -80,6 +80,7 @@
 
             <!-- POS TAB -->
             <TabItem Header="POS">
+
                 <Grid Margin="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="1.2*"/>
@@ -257,10 +258,13 @@
                         </Grid>
                     </Border>
                 </Grid>
+			
             </TabItem>
 
             <!-- TABLES TAB -->
             <TabItem Header="Tables">
+				<ScrollViewer VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Auto">
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -382,10 +386,89 @@
                         </Border>
                     </Grid>
                 </Grid>
+				</ScrollViewer>
             </TabItem>
+
+			<!-- History TAB -->
+			<TabItem Header="History">
+				<ScrollViewer VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Auto">
+				<Grid Margin="12">
+					<Grid.RowDefinitions>
+						<RowDefinition Height="Auto"/>
+						<RowDefinition Height="*"/>
+					</Grid.RowDefinitions>
+
+					<Border Grid.Row="0" Style="{StaticResource CardStyle}">
+						<WrapPanel>
+							<TextBlock Text="Bill History"
+									   FontSize="24"
+									   FontWeight="Bold"
+									   Margin="0,0,20,0"
+									   VerticalAlignment="Center"/>
+
+							<DatePicker x:Name="BillHistoryDatePicker"
+										Width="150"
+										Margin="0,0,10,0"/>
+
+							<Button Content="Search Date"
+									Style="{StaticResource SecondaryButtonStyle}"
+									Click="SearchBillHistoryByDate_Click"/>
+
+							<TextBox x:Name="BillHistorySearchTextBox"
+									 Width="220"
+									 Margin="20,0,10,0"/>
+
+							<Button Content="Search Bill No"
+									Style="{StaticResource SecondaryButtonStyle}"
+									Click="SearchBillHistoryByNumber_Click"/>
+
+							<Button Content="Reprint Receipt"
+									Style="{StaticResource PrimaryButtonStyle}"
+									Click="ReprintSelectedBillReceipt_Click"/>
+						</WrapPanel>
+					</Border>
+
+					<Grid Grid.Row="1">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="1.5*"/>
+							<ColumnDefinition Width="12"/>
+							<ColumnDefinition Width="1*"/>
+						</Grid.ColumnDefinitions>
+
+						<Border Grid.Column="0" Style="{StaticResource CardStyle}">
+							<DataGrid x:Name="BillHistoryDataGrid"
+									  AutoGenerateColumns="True"
+									  SelectionChanged="BillHistoryDataGrid_SelectionChanged"/>
+						</Border>
+
+						<Border Grid.Column="2" Style="{StaticResource CardStyle}">
+							<Grid>
+								<Grid.RowDefinitions>
+									<RowDefinition Height="Auto"/>
+									<RowDefinition Height="*"/>
+								</Grid.RowDefinitions>
+
+								<TextBlock x:Name="BillHistorySelectedTitleTextBlock"
+										   Text="Select a bill"
+										   FontSize="22"
+										   FontWeight="Bold"
+										   Margin="0,0,0,12"/>
+
+								<DataGrid x:Name="BillHistoryItemsDataGrid"
+										  Grid.Row="1"
+										  AutoGenerateColumns="True"/>
+							</Grid>
+						</Border>
+					</Grid>
+				</Grid>
+				</ScrollViewer>
+			</TabItem>
 
             <!-- MANAGEMENT TAB -->
             <TabItem Header="Management">
+				<ScrollViewer VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Auto">
                 <Grid Margin="12">
                     <TabControl>
                         <TabItem Header="Categories">
@@ -518,167 +601,205 @@
                         </TabItem>
                     </TabControl>
                 </Grid>
+				</ScrollViewer>
             </TabItem>
 
             <!-- REPORTS TAB -->
-            <TabItem Header="Reports">
-                <Grid Margin="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+			<TabItem Header="Reports">
+				<ScrollViewer VerticalScrollBarVisibility="Auto"
+							  HorizontalScrollBarVisibility="Auto">
+					<Grid Margin="12" MinWidth="1000">
+						<Grid.RowDefinitions>
+							<RowDefinition Height="Auto"/>
+							<RowDefinition Height="Auto"/>
+							<RowDefinition Height="Auto"/>
+							<RowDefinition Height="Auto"/>
+						</Grid.RowDefinitions>
 
-                    <TextBlock Text="Reports Dashboard"
-                               FontSize="24"
-                               FontWeight="Bold"
-                               Margin="0,0,0,16"/>
+						<TextBlock Text="Reports Dashboard"
+								   FontSize="24"
+								   FontWeight="Bold"
+								   Margin="0,0,0,16"/>
 
-                    <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,16">
-                        <Border Style="{StaticResource CardStyle}">
-                            <StackPanel>
-                                <TextBlock Text="Selected Day Sales" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
-                                <TextBlock x:Name="TodaySalesTextBlock"
-                                           Text="0.00"
-                                           FontSize="28"
-                                           FontWeight="Bold"
-                                           Margin="0,8,0,0"/>
-                            </StackPanel>
-                        </Border>
+						<UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,16">
+							<Border Style="{StaticResource CardStyle}">
+								<StackPanel>
+									<TextBlock Text="Selected Day Sales"
+											   FontSize="16"
+											   Foreground="{StaticResource MutedBrush}"/>
+									<TextBlock x:Name="TodaySalesTextBlock"
+											   Text="0.00"
+											   FontSize="28"
+											   FontWeight="Bold"
+											   Margin="0,8,0,0"/>
+								</StackPanel>
+							</Border>
 
-                        <Border Style="{StaticResource CardStyle}">
-                            <StackPanel>
-                                <TextBlock Text="Paid Bills" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
-                                <TextBlock x:Name="TodayBillCountTextBlock"
-                                           Text="0"
-                                           FontSize="28"
-                                           FontWeight="Bold"
-                                           Margin="0,8,0,0"/>
-                            </StackPanel>
-                        </Border>
+							<Border Style="{StaticResource CardStyle}">
+								<StackPanel>
+									<TextBlock Text="Paid Bills"
+											   FontSize="16"
+											   Foreground="{StaticResource MutedBrush}"/>
+									<TextBlock x:Name="TodayBillCountTextBlock"
+											   Text="0"
+											   FontSize="28"
+											   FontWeight="Bold"
+											   Margin="0,8,0,0"/>
+								</StackPanel>
+							</Border>
 
-                        <Border Style="{StaticResource CardStyle}">
-                            <StackPanel>
-                                <TextBlock Text="Open Bills" FontSize="16" Foreground="{StaticResource MutedBrush}"/>
-                                <TextBlock x:Name="OpenBillsCountTextBlock"
-                                           Text="0"
-                                           FontSize="28"
-                                           FontWeight="Bold"
-                                           Margin="0,8,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </UniformGrid>
+							<Border Style="{StaticResource CardStyle}">
+								<StackPanel>
+									<TextBlock Text="Open Bills"
+											   FontSize="16"
+											   Foreground="{StaticResource MutedBrush}"/>
+									<TextBlock x:Name="OpenBillsCountTextBlock"
+											   Text="0"
+											   FontSize="28"
+											   FontWeight="Bold"
+											   Margin="0,8,0,0"/>
+								</StackPanel>
+							</Border>
+						</UniformGrid>
 
-                    <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
+						<!-- Report date selector -->
+						<Border Grid.Row="2"
+								Style="{StaticResource CardStyle}"
+								Margin="0,0,0,12">
+							<StackPanel>
+								<TextBlock Text="Daily Report"
+										   FontSize="22"
+										   FontWeight="Bold"
+										   Margin="0,0,0,10"/>
 
-                            <StackPanel Grid.Row="0" Orientation="Vertical" Margin="0,0,0,12">
-                                <TextBlock Text="Daily Report"
-                                           FontSize="22"
-                                           FontWeight="Bold"
-                                           Margin="0,0,0,10"/>
+								<WrapPanel>
+									<DatePicker x:Name="ReportDatePicker"
+												Width="150"
+												Margin="0,0,10,0"/>
 
-                                <WrapPanel>
-                                    <DatePicker x:Name="ReportDatePicker"
-                                                Width="150"
-                                                Margin="0,0,10,0"/>
+									<Button Content="Load Report"
+											Style="{StaticResource SecondaryButtonStyle}"
+											Click="LoadSingleDateReport_Click"/>
+								</WrapPanel>
+							</StackPanel>
+						</Border>
 
-                                    <Button Content="Load Report"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="LoadSingleDateReport_Click"/>
-                                </WrapPanel>
-                            </StackPanel>
+						<!-- Main reports content -->
+						<Grid Grid.Row="3">
+							<Grid.ColumnDefinitions>
+								<ColumnDefinition Width="2*"/>
+								<ColumnDefinition Width="12"/>
+								<ColumnDefinition Width="2*"/>
+							</Grid.ColumnDefinitions>
 
-                            <Grid Grid.Row="1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="3*"/>
-                                    <ColumnDefinition Width="16"/>
-                                    <ColumnDefinition Width="2*"/>
-                                </Grid.ColumnDefinitions>
+							<!-- Left side: item sales + payment breakdown -->
+							<StackPanel Grid.Column="0">
 
-                                <!-- Left: Item sales -->
-                                <Grid Grid.Column="0">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
+								<Border Style="{StaticResource CardStyle}">
+									<Grid>
+										<Grid.RowDefinitions>
+											<RowDefinition Height="Auto"/>
+											<RowDefinition Height="220"/>
+										</Grid.RowDefinitions>
 
-                                    <TextBlock Text="Item Sales"
-                                               FontSize="20"
-                                               FontWeight="SemiBold"
-                                               Margin="0,0,0,10"/>
+										<TextBlock Text="Payment Breakdown"
+												   FontSize="20"
+												   FontWeight="SemiBold"
+												   Margin="0,0,0,10"/>
 
-                                    <DataGrid x:Name="ItemSalesReportDataGrid"
-                                              Grid.Row="1"/>
-                                </Grid>
+										<DataGrid x:Name="PaymentBreakdownDataGrid"
+												  Grid.Row="1"
+												  AutoGenerateColumns="True"/>
+									</Grid>
+								</Border>
 
-                                <!-- Right: Expenses -->
-                                <Grid Grid.Column="2">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
+								<Border Style="{StaticResource CardStyle}">
+									<Grid>
+										<Grid.RowDefinitions>
+											<RowDefinition Height="Auto"/>
+											<RowDefinition Height="320"/>
+										</Grid.RowDefinitions>
 
-                                    <TextBlock Text="Expenses"
-                                               FontSize="20"
-                                               FontWeight="SemiBold"
-                                               Margin="0,0,0,10"/>
+										<TextBlock Text="Item Sales"
+												   FontSize="20"
+												   FontWeight="SemiBold"
+												   Margin="0,0,0,10"/>
 
-                                    <WrapPanel Grid.Row="1" Margin="0,0,0,10">
-                                        <TextBox x:Name="ExpenseDescriptionTextBox"
-                                                 Width="220"
-                                                 Margin="0,0,10,10"/>
+										<DataGrid x:Name="ItemSalesReportDataGrid"
+												  Grid.Row="1"/>
+									</Grid>
+								</Border>
 
-                                        <TextBox x:Name="ExpenseAmountTextBox"
-                                                 Width="120"
-                                                 Margin="0,0,10,10"/>
+							</StackPanel>
 
-                                        <Button Content="Add Expense"
-                                                Style="{StaticResource PrimaryButtonStyle}"
-                                                Click="AddExpenseButton_Click"/>
-                                    </WrapPanel>
+							<!-- Right side: expenses -->
+							<Border Grid.Column="2" Style="{StaticResource CardStyle}">
+								<Grid>
+									<Grid.RowDefinitions>
+										<RowDefinition Height="Auto"/>
+										<RowDefinition Height="Auto"/>
+										<RowDefinition Height="Auto"/>
+										<RowDefinition Height="320"/>
+									</Grid.RowDefinitions>
 
-                                    <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,0,0,10">
-                                        <TextBlock x:Name="TotalExpenseTextBlock"
-                                                   Text="Total Expenses: 0.00"
-                                                   FontSize="16"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,4"/>
+									<TextBlock Text="Expenses"
+											   FontSize="20"
+											   FontWeight="SemiBold"
+											   Margin="0,0,0,10"/>
 
-                                        <TextBlock x:Name="NetSalesTextBlock"
-                                                   Text="Net: 0.00"
-                                                   FontSize="16"
-                                                   FontWeight="SemiBold"/>
-                                        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
-                                            <Button Content="Edit Selected"
-            Style="{StaticResource SecondaryButtonStyle}"
-            Click="EditExpense_Click"/>
+									<WrapPanel Grid.Row="1" Margin="0,0,0,10">
+										<TextBox x:Name="ExpenseDescriptionTextBox"
+												 Width="220"
+												 Margin="0,0,10,10"/>
 
-                                            <Button Content="Delete Selected"
-            Style="{StaticResource SecondaryButtonStyle}"
-            Click="DeleteExpense_Click"/>
-                                        </WrapPanel>
-                                    </StackPanel>
+										<TextBox x:Name="ExpenseAmountTextBox"
+												 Width="120"
+												 Margin="0,0,10,10"/>
 
-                                    <DataGrid x:Name="ExpensesDataGrid"
-                                              Grid.Row="3"
-                                              SelectionMode="Single"
-                                              AutoGenerateColumns="True"/>
-                                </Grid>
-                            </Grid>
-                        </Grid>
-                    </Border>
-                </Grid>
-            </TabItem>
+										<Button Content="Add Expense"
+												Style="{StaticResource PrimaryButtonStyle}"
+												Click="AddExpenseButton_Click"/>
+									</WrapPanel>
+
+									<StackPanel Grid.Row="2" Margin="0,0,0,10">
+										<TextBlock x:Name="TotalExpenseTextBlock"
+												   Text="Total Expenses: 0.00"
+												   FontSize="16"
+												   FontWeight="SemiBold"
+												   Margin="0,0,0,4"/>
+
+										<TextBlock x:Name="NetSalesTextBlock"
+												   Text="Net: 0.00"
+												   FontSize="16"
+												   FontWeight="SemiBold"
+												   Margin="0,0,0,10"/>
+
+										<WrapPanel>
+											<Button Content="Edit Selected"
+													Style="{StaticResource SecondaryButtonStyle}"
+													Click="EditExpense_Click"/>
+
+											<Button Content="Delete Selected"
+													Style="{StaticResource SecondaryButtonStyle}"
+													Click="DeleteExpense_Click"/>
+										</WrapPanel>
+									</StackPanel>
+
+									<DataGrid x:Name="ExpensesDataGrid"
+											  Grid.Row="3"
+											  SelectionMode="Single"
+											  AutoGenerateColumns="True"/>
+								</Grid>
+							</Border>
+						</Grid>
+					</Grid>
+				</ScrollViewer>
+			</TabItem>
 
             <!-- Settings TAB -->
             <TabItem Header="Settings">
+				<ScrollViewer VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Auto">
                 <Grid Margin="12">
                     <Border Style="{StaticResource CardStyle}">
                         <Grid>
@@ -855,6 +976,7 @@
                     </Border>
                     
                 </Grid>
+				</ScrollViewer>
             </TabItem>
         </TabControl>
     </Grid>

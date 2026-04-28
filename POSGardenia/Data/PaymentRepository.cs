@@ -1,5 +1,6 @@
 ﻿using POSGardenia.Models;
 using System;
+using System.Collections.Generic;
 
 namespace POSGardenia.Data
 {
@@ -150,6 +151,48 @@ namespace POSGardenia.Data
             catch (Exception ex)
             {
                 throw new Exception("Failed to get paid bill count by date. " + ex.Message, ex);
+            }
+        }
+
+        public List<PaymentBreakdownReport> GetPaymentBreakdownBySingleDate(string reportDate)
+        {
+            try
+            {
+                var result = new List<PaymentBreakdownReport>();
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                PaymentMethod,
+                IFNULL(SUM(Amount), 0) AS TotalAmount,
+                COUNT(DISTINCT BillId) AS BillCount
+            FROM Payments
+            WHERE date(PaidAt) = date(@reportDate)
+            GROUP BY PaymentMethod
+            ORDER BY PaymentMethod;";
+
+                command.Parameters.AddWithValue("@reportDate", reportDate);
+
+                using var reader = command.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    result.Add(new PaymentBreakdownReport
+                    {
+                        PaymentMethod = reader.GetString(0),
+                        TotalAmount = reader.GetDecimal(1),
+                        BillCount = reader.GetInt32(2)
+                    });
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to load payment breakdown. " + ex.Message, ex);
             }
         }
     }

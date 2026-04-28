@@ -394,5 +394,153 @@ namespace POSGardenia.Data
             var date = createdAt == default ? DateTime.Now : createdAt;
             return date.ToString("yyyy-MM-dd");
         }
+
+        public List<BillHistoryDisplay> GetBillHistoryByDate(string reportDate)
+        {
+            try
+            {
+                var bills = new List<BillHistoryDisplay>();
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                b.Id,
+                b.BillType,
+                IFNULL(dt.TableName, 'Quick Sale') AS TableName,
+                b.Status,
+                b.CreatedAt,
+                IFNULL(b.BillDate, '') AS BillDate,
+                IFNULL(b.DailyBillNumber, 0) AS DailyBillNumber,
+                IFNULL(pay.PaymentMethod, '') AS PaymentMethod,
+                IFNULL(pay.PaidAt, '') AS PaidAt,
+                IFNULL(SUM(
+                    CASE 
+                        WHEN bi.Status = 'ACTIVE' THEN bi.UnitPrice * bi.Quantity
+                        ELSE 0
+                    END
+                ), 0) AS TotalAmount
+            FROM Bills b
+            LEFT JOIN DiningTables dt ON b.DiningTableId = dt.Id
+            LEFT JOIN BillItems bi ON b.Id = bi.BillId
+            LEFT JOIN Payments pay ON b.Id = pay.BillId
+            WHERE date(b.CreatedAt) = date(@reportDate)
+               OR date(pay.PaidAt) = date(@reportDate)
+            GROUP BY 
+                b.Id, b.BillType, dt.TableName, b.Status, b.CreatedAt,
+                b.BillDate, b.DailyBillNumber, pay.PaymentMethod, pay.PaidAt
+            ORDER BY b.Id DESC;";
+
+                command.Parameters.AddWithValue("@reportDate", reportDate);
+
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    string billDate = reader.GetString(5);
+                    int dailyNo = reader.GetInt32(6);
+
+                    string visibleBillNo = dailyNo > 0 && !string.IsNullOrWhiteSpace(billDate)
+                        ? $"{billDate.Replace("-", "")}-{dailyNo:D3}"
+                        : $"#{reader.GetInt32(0)}";
+
+                    bills.Add(new BillHistoryDisplay
+                    {
+                        Id = reader.GetInt32(0),
+                        BillType = reader.GetString(1),
+                        TableName = reader.GetString(2),
+                        Status = reader.GetString(3),
+                        CreatedAt = reader.GetString(4),
+                        VisibleBillNumber = visibleBillNo,
+                        PaymentMethod = reader.GetString(7),
+                        PaidAt = reader.GetString(8),
+                        TotalAmount = reader.GetDecimal(9)
+                    });
+                }
+
+                return bills;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to load bill history by date. " + ex.Message, ex);
+            }
+        }
+
+        public List<BillHistoryDisplay> SearchBillHistoryByVisibleBillNumber(string searchText)
+        {
+            try
+            {
+                var bills = new List<BillHistoryDisplay>();
+
+                if (string.IsNullOrWhiteSpace(searchText))
+                    return bills;
+
+                using var connection = DatabaseHelper.GetConnection();
+                connection.Open();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+            SELECT 
+                b.Id,
+                b.BillType,
+                IFNULL(dt.TableName, 'Quick Sale') AS TableName,
+                b.Status,
+                b.CreatedAt,
+                IFNULL(b.BillDate, '') AS BillDate,
+                IFNULL(b.DailyBillNumber, 0) AS DailyBillNumber,
+                IFNULL(pay.PaymentMethod, '') AS PaymentMethod,
+                IFNULL(pay.PaidAt, '') AS PaidAt,
+                IFNULL(SUM(
+                    CASE 
+                        WHEN bi.Status = 'ACTIVE' THEN bi.UnitPrice * bi.Quantity
+                        ELSE 0
+                    END
+                ), 0) AS TotalAmount
+            FROM Bills b
+            LEFT JOIN DiningTables dt ON b.DiningTableId = dt.Id
+            LEFT JOIN BillItems bi ON b.Id = bi.BillId
+            LEFT JOIN Payments pay ON b.Id = pay.BillId
+            WHERE 
+                (REPLACE(IFNULL(b.BillDate, ''), '-', '') || '-' || printf('%03d', IFNULL(b.DailyBillNumber, 0))) LIKE @search
+                OR CAST(b.Id AS TEXT) LIKE @search
+            GROUP BY 
+                b.Id, b.BillType, dt.TableName, b.Status, b.CreatedAt,
+                b.BillDate, b.DailyBillNumber, pay.PaymentMethod, pay.PaidAt
+            ORDER BY b.Id DESC;";
+
+                command.Parameters.AddWithValue("@search", "%" + searchText.Trim() + "%");
+
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    string billDate = reader.GetString(5);
+                    int dailyNo = reader.GetInt32(6);
+
+                    string visibleBillNo = dailyNo > 0 && !string.IsNullOrWhiteSpace(billDate)
+                        ? $"{billDate.Replace("-", "")}-{dailyNo:D3}"
+                        : $"#{reader.GetInt32(0)}";
+
+                    bills.Add(new BillHistoryDisplay
+                    {
+                        Id = reader.GetInt32(0),
+                        BillType = reader.GetString(1),
+                        TableName = reader.GetString(2),
+                        Status = reader.GetString(3),
+                        CreatedAt = reader.GetString(4),
+                        VisibleBillNumber = visibleBillNo,
+                        PaymentMethod = reader.GetString(7),
+                        PaidAt = reader.GetString(8),
+                        TotalAmount = reader.GetDecimal(9)
+                    });
+                }
+
+                return bills;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Failed to search bill history. " + ex.Message, ex);
+            }
+        }
     }
 }
