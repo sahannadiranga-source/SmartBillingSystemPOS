@@ -1,4 +1,6 @@
-﻿using POSGardenia.Models;
+﻿using Microsoft.Data.Sqlite;
+using POSGardenia.Models;
+using System;
 using System.Collections.Generic;
 
 namespace POSGardenia.Data
@@ -10,20 +12,29 @@ namespace POSGardenia.Data
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
+            Add(connection, null, product);
+        }
+
+        // Transaction-aware version so a stock item and its products can be created together.
+        public int Add(SqliteConnection connection, SqliteTransaction? transaction, Product product)
+        {
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = @"
                 INSERT INTO Products
-                (Name, CategoryId, SellingPrice, IsKitchenItem, IsActive)
+                (Name, CategoryId, SellingPrice, IsKitchenItem, IsActive, StockItemId, UnitsPerSale)
                 VALUES
-                (@name, @categoryId, @sellingPrice, @isKitchenItem, @isActive);";
+                (@name, @categoryId, @sellingPrice, IFNULL((SELECT IsKitchenItem FROM Categories WHERE Id = @categoryId), 0), @isActive, @stockItemId, @unitsPerSale);
+                SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@name", product.Name);
             command.Parameters.AddWithValue("@categoryId", product.CategoryId);
             command.Parameters.AddWithValue("@sellingPrice", product.SellingPrice);
-            command.Parameters.AddWithValue("@isKitchenItem", product.IsKitchenItem ? 1 : 0);
             command.Parameters.AddWithValue("@isActive", product.IsActive ? 1 : 0);
+            command.Parameters.AddWithValue("@stockItemId", product.StockItemId.HasValue ? product.StockItemId.Value : DBNull.Value);
+            command.Parameters.AddWithValue("@unitsPerSale", product.UnitsPerSale.HasValue ? product.UnitsPerSale.Value : DBNull.Value);
 
-            command.ExecuteNonQuery();
+            return Convert.ToInt32(command.ExecuteScalar());
         }
 
         // Used to enforce name uniqueness among non-deleted products before Add/Update.
@@ -70,9 +81,13 @@ namespace POSGardenia.Data
         c.Name as CategoryName,
         p.SellingPrice,
         p.IsKitchenItem,
-        p.IsActive
+        p.IsActive,
+        p.StockItemId,
+        si.Name,
+        p.UnitsPerSale
     FROM Products p
     INNER JOIN Categories c ON p.CategoryId = c.Id
+    LEFT JOIN StockItems si ON si.Id = p.StockItemId
     WHERE p.IsDeleted = 0
     ORDER BY p.Name;";
 
@@ -86,7 +101,10 @@ namespace POSGardenia.Data
                     CategoryName = reader.GetString(2),
                     SellingPrice = reader.GetDecimal(3),
                     IsKitchenItem = reader.GetInt32(4) == 1,
-                    IsActive = reader.GetInt32(5) == 1
+                    IsActive = reader.GetInt32(5) == 1,
+                    StockItemId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    MainItem = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                    UnitsPerSale = reader.IsDBNull(8) ? null : reader.GetDecimal(8)
                 });
             }
 
@@ -103,9 +121,11 @@ namespace POSGardenia.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-        SELECT p.Id, p.Name, p.CategoryId, p.SellingPrice, p.IsKitchenItem, p.IsActive
+        SELECT p.Id, p.Name, p.CategoryId, p.SellingPrice, p.IsKitchenItem, p.IsActive,
+               p.StockItemId, p.UnitsPerSale, si.Name
         FROM Products p
         INNER JOIN Categories c ON p.CategoryId = c.Id
+        LEFT JOIN StockItems si ON si.Id = p.StockItemId
         WHERE p.IsActive = 1
           AND p.IsDeleted = 0
           AND c.IsActive = 1
@@ -122,7 +142,10 @@ namespace POSGardenia.Data
                     CategoryId = reader.GetInt32(2),
                     SellingPrice = reader.GetDecimal(3),
                     IsKitchenItem = reader.GetInt32(4) == 1,
-                    IsActive = reader.GetInt32(5) == 1
+                    IsActive = reader.GetInt32(5) == 1,
+                    StockItemId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    UnitsPerSale = reader.IsDBNull(7) ? null : reader.GetDecimal(7),
+                    MainItemName = reader.IsDBNull(8) ? null : reader.GetString(8)
                 });
             }
 
@@ -176,28 +199,37 @@ namespace POSGardenia.Data
 
         public void Update(Product product)
         {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            Update(connection, null, product);
+        }
+
+        public void Update(SqliteConnection connection, SqliteTransaction? transaction, Product product)
+        {
             try
             {
                 if (product == null)
                     throw new Exception("Product is null.");
 
-                using var connection = DatabaseHelper.GetConnection();
-                connection.Open();
-
                 using var command = connection.CreateCommand();
+                command.Transaction = transaction;
                 command.CommandText = @"
             UPDATE Products
             SET Name = @name,
                 CategoryId = @categoryId,
                 SellingPrice = @sellingPrice,
-                IsKitchenItem = @isKitchenItem
+                IsKitchenItem = IFNULL((SELECT IsKitchenItem FROM Categories WHERE Id = @categoryId), 0),
+                StockItemId = @stockItemId,
+                UnitsPerSale = @unitsPerSale
             WHERE Id = @id;";
 
                 command.Parameters.AddWithValue("@id", product.Id);
                 command.Parameters.AddWithValue("@name", product.Name ?? "");
                 command.Parameters.AddWithValue("@categoryId", product.CategoryId);
                 command.Parameters.AddWithValue("@sellingPrice", product.SellingPrice);
-                command.Parameters.AddWithValue("@isKitchenItem", product.IsKitchenItem ? 1 : 0);
+                command.Parameters.AddWithValue("@stockItemId", product.StockItemId.HasValue ? product.StockItemId.Value : DBNull.Value);
+                command.Parameters.AddWithValue("@unitsPerSale", product.UnitsPerSale.HasValue ? product.UnitsPerSale.Value : DBNull.Value);
 
                 command.ExecuteNonQuery();
             }
