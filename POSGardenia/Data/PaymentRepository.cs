@@ -24,6 +24,62 @@ namespace POSGardenia.Data
             command.ExecuteNonQuery();
         }
 
+        public decimal GetPaidTotalForBill(int billId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT IFNULL(SUM(Amount), 0) FROM Payments WHERE BillId = @billId;";
+            command.Parameters.AddWithValue("@billId", billId);
+
+            return Convert.ToDecimal(command.ExecuteScalar());
+        }
+
+        // Cumulative CASH and CARD received for one bill, across every payment made on it.
+        public (decimal Cash, decimal Card) GetPaidByMethodForBill(int billId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        SELECT
+            IFNULL(SUM(CASE WHEN PaymentMethod = 'CASH' THEN Amount ELSE 0 END), 0),
+            IFNULL(SUM(CASE WHEN PaymentMethod = 'CARD' THEN Amount ELSE 0 END), 0)
+        FROM Payments
+        WHERE BillId = @billId;";
+            command.Parameters.AddWithValue("@billId", billId);
+
+            using var reader = command.ExecuteReader();
+            reader.Read();
+            return (reader.GetDecimal(0), reader.GetDecimal(1));
+        }
+
+        // Open bills that already have some payment but still owe a balance.
+        public (int PartiallyPaidBills, decimal TotalDue) GetOutstandingSummary()
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        SELECT COUNT(*), IFNULL(SUM(Total - Paid), 0)
+        FROM (
+            SELECT
+                b.Id,
+                IFNULL((SELECT SUM(bi.UnitPrice * bi.Quantity) FROM BillItems bi WHERE bi.BillId = b.Id AND bi.Status = 'ACTIVE'), 0) AS Total,
+                (SELECT IFNULL(SUM(pay.Amount), 0) FROM Payments pay WHERE pay.BillId = b.Id) AS Paid
+            FROM Bills b
+            WHERE b.Status = 'OPEN'
+        )
+        WHERE Paid > 0 AND Total - Paid > 0.01;";
+
+            using var reader = command.ExecuteReader();
+            reader.Read();
+            return (reader.GetInt32(0), reader.GetDecimal(1));
+        }
+
         public decimal GetTodaySalesTotal()
         {
             using var connection = DatabaseHelper.GetConnection();

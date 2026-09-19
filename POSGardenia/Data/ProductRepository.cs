@@ -26,6 +26,35 @@ namespace POSGardenia.Data
             command.ExecuteNonQuery();
         }
 
+        // Used to enforce name uniqueness among non-deleted products before Add/Update.
+        public Product? GetByName(string name)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT Id, Name, CategoryId, SellingPrice, IsKitchenItem, IsActive
+                FROM Products
+                WHERE Name = @name AND IsDeleted = 0
+                LIMIT 1;";
+            command.Parameters.AddWithValue("@name", name);
+
+            using var reader = command.ExecuteReader();
+            if (!reader.Read())
+                return null;
+
+            return new Product
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                CategoryId = reader.GetInt32(2),
+                SellingPrice = reader.GetDecimal(3),
+                IsKitchenItem = reader.GetInt32(4) == 1,
+                IsActive = reader.GetInt32(5) == 1
+            };
+        }
+
         public List<ProductDisplay> GetAllForDisplay()
         {
             var products = new List<ProductDisplay>();
@@ -35,7 +64,7 @@ namespace POSGardenia.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-    SELECT 
+    SELECT
         p.Id,
         p.Name,
         c.Name as CategoryName,
@@ -44,7 +73,7 @@ namespace POSGardenia.Data
         p.IsActive
     FROM Products p
     INNER JOIN Categories c ON p.CategoryId = c.Id
-    WHERE p.IsActive = 1
+    WHERE p.IsDeleted = 0
     ORDER BY p.Name;";
 
             using var reader = command.ExecuteReader();
@@ -78,7 +107,9 @@ namespace POSGardenia.Data
         FROM Products p
         INNER JOIN Categories c ON p.CategoryId = c.Id
         WHERE p.IsActive = 1
+          AND p.IsDeleted = 0
           AND c.IsActive = 1
+          AND c.IsDeleted = 0
         ORDER BY p.Name;";
 
             using var reader = command.ExecuteReader();
@@ -109,6 +140,36 @@ namespace POSGardenia.Data
         SET IsActive = 0
         WHERE Id = @id;";
 
+            command.Parameters.AddWithValue("@id", productId);
+            command.ExecuteNonQuery();
+        }
+
+        public void Reactivate(int productId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE Products
+        SET IsActive = 1
+        WHERE Id = @id;";
+
+            command.Parameters.AddWithValue("@id", productId);
+            command.ExecuteNonQuery();
+        }
+
+        public void MarkDeleted(int productId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE Products
+        SET IsDeleted = 1,
+            IsActive = 0
+        WHERE Id = @id;";
             command.Parameters.AddWithValue("@id", productId);
             command.ExecuteNonQuery();
         }

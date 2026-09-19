@@ -44,6 +44,28 @@ namespace POSGardenia.Data
                     try { alterBills2.ExecuteNonQuery(); } catch { }
                 }
 
+                // IsDeleted is separate from IsActive: a deactivated row is hidden from
+                // POS/pickers but still shown (unticked) in Management for reactivation.
+                // A deleted row is hidden everywhere, but the row itself is kept forever
+                // so bill history that references it never breaks a foreign key.
+                using (var alterCategories1 = connection.CreateCommand())
+                {
+                    alterCategories1.CommandText = "ALTER TABLE Categories ADD COLUMN IsDeleted INTEGER NOT NULL DEFAULT 0;";
+                    try { alterCategories1.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var alterProducts1 = connection.CreateCommand())
+                {
+                    alterProducts1.CommandText = "ALTER TABLE Products ADD COLUMN IsDeleted INTEGER NOT NULL DEFAULT 0;";
+                    try { alterProducts1.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var alterDiningTables1 = connection.CreateCommand())
+                {
+                    alterDiningTables1.CommandText = "ALTER TABLE DiningTables ADD COLUMN IsDeleted INTEGER NOT NULL DEFAULT 0;";
+                    try { alterDiningTables1.ExecuteNonQuery(); } catch { }
+                }
+
                 using (var pragmaCommand = connection.CreateCommand())
                 {
                     pragmaCommand.CommandText = @"
@@ -144,6 +166,29 @@ namespace POSGardenia.Data
 
                 command.CommandText = createExpensesTable;
                 command.ExecuteNonQuery();
+
+                // Enforce name uniqueness among non-deleted rows only (partial index), so a
+                // soft-deleted category/product never blocks reusing its name for a new one.
+                // Wrapped/swallowed like the ALTER TABLE calls above: if existing data still
+                // has duplicate names (e.g. from before this constraint existed), creating the
+                // index fails harmlessly here and takes effect once those duplicates are cleaned up.
+                using (var indexCategories = connection.CreateCommand())
+                {
+                    indexCategories.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Categories_Name_NotDeleted ON Categories(Name) WHERE IsDeleted = 0;";
+                    try { indexCategories.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var indexProducts = connection.CreateCommand())
+                {
+                    indexProducts.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Products_Name_NotDeleted ON Products(Name) WHERE IsDeleted = 0;";
+                    try { indexProducts.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var indexPayments = connection.CreateCommand())
+                {
+                    indexPayments.CommandText = "CREATE INDEX IF NOT EXISTS IX_Payments_BillId ON Payments(BillId);";
+                    try { indexPayments.ExecuteNonQuery(); } catch { }
+                }
             }
             catch (Exception ex)
             {

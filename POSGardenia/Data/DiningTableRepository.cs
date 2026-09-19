@@ -19,6 +19,34 @@ namespace POSGardenia.Data
             command.ExecuteNonQuery();
         }
 
+        public List<DiningTable> GetAll()
+        {
+            var tables = new List<DiningTable>();
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT Id, TableName, IsActive
+                FROM DiningTables
+                WHERE IsDeleted = 0
+                ORDER BY TableName;";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                tables.Add(new DiningTable
+                {
+                    Id = reader.GetInt32(0),
+                    TableName = reader.GetString(1),
+                    IsActive = reader.GetInt32(2) == 1
+                });
+            }
+
+            return tables;
+        }
+
         public List<DiningTable> GetActiveTables()
         {
             var tables = new List<DiningTable>();
@@ -30,7 +58,7 @@ namespace POSGardenia.Data
             command.CommandText = @"
                 SELECT Id, TableName, IsActive
                 FROM DiningTables
-                WHERE IsActive = 1
+                WHERE IsActive = 1 AND IsDeleted = 0
                 ORDER BY TableName;";
 
             using var reader = command.ExecuteReader();
@@ -58,6 +86,36 @@ namespace POSGardenia.Data
         SET IsActive = 0
         WHERE Id = @id;";
 
+            command.Parameters.AddWithValue("@id", tableId);
+            command.ExecuteNonQuery();
+        }
+
+        public void Reactivate(int tableId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE DiningTables
+        SET IsActive = 1
+        WHERE Id = @id;";
+
+            command.Parameters.AddWithValue("@id", tableId);
+            command.ExecuteNonQuery();
+        }
+
+        public void MarkDeleted(int tableId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE DiningTables
+        SET IsDeleted = 1,
+            IsActive = 0
+        WHERE Id = @id;";
             command.Parameters.AddWithValue("@id", tableId);
             command.ExecuteNonQuery();
         }

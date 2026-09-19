@@ -1,4 +1,4 @@
-﻿using POSGardenia.Data;
+using POSGardenia.Data;
 using POSGardenia.Models;
 using POSGardenia.Services;
 using System;
@@ -206,7 +206,18 @@ namespace POSGardenia
             try
             {
                 CartDataGrid.Items.Refresh();
-                CartTotalTextBlock.Text = $"Cart Total: {_cart.Sum(x => x?.LineTotal ?? 0):F2}";
+                decimal cartTotal = _cart.Sum(x => x?.LineTotal ?? 0);
+                CartTotalTextBlock.Text = $"Cart Total: {cartTotal:F2}";
+
+                decimal alreadyPaid = _currentTargetBillId.HasValue
+                    ? _paymentRepository.GetPaidTotalForBill(_currentTargetBillId.Value)
+                    : 0;
+                decimal due = Math.Max(0, cartTotal - alreadyPaid);
+
+                PosPaymentSummaryTextBlock.Text = alreadyPaid > 0
+                    ? $"Bill {cartTotal:F2} | Paid {alreadyPaid:F2} | Due {due:F2}"
+                    : $"Due {due:F2}";
+                PosPayAmountTextBox.Text = due.ToString("F2");
 
                 if (_currentTargetBillId.HasValue)
                 {
@@ -464,6 +475,7 @@ namespace POSGardenia
                 SelectedTableBillTitleTextBlock.Text = "Select an open bill";
                 SelectedTableBillInfoTextBlock.Text = "";
                 SelectedBillTotalTextBlock.Text = "Bill Total: 0.00";
+                SelectedBillPaidDueTextBlock.Visibility = Visibility.Collapsed;
             }
             catch (Exception ex)
             {
@@ -515,28 +527,45 @@ namespace POSGardenia
                     return;
                 }
 
+                decimal cartTotal = _cart.Sum(x => x?.LineTotal ?? 0);
+                decimal alreadyPaid = _currentTargetBillId.HasValue
+                    ? _paymentRepository.GetPaidTotalForBill(_currentTargetBillId.Value)
+                    : 0;
+                decimal dueBefore = Math.Max(0, cartTotal - alreadyPaid);
+
+                if (!decimal.TryParse(PosPayAmountTextBox.Text?.Trim(), out decimal amount) || amount <= 0)
+                {
+                    MessageBox.Show("Enter a valid amount to pay.");
+                    return;
+                }
+
+                if (amount > dueBefore + 0.01m)
+                {
+                    MessageBox.Show($"Amount ({amount:F2}) is more than the amount due ({dueBefore:F2}).");
+                    return;
+                }
+
                 int billId;
                 string saleTypeText;
                 string tableName;
+                decimal total;
+                decimal due;
 
                 if (_currentTargetBillId.HasValue)
                 {
                     billId = _currentTargetBillId.Value;
                     saleTypeText = "Existing Bill";
                     tableName = GetBillTableName(billId);
-                    string visibleBillNo = GetVisibleBillNumber(billId);
 
-                    decimal existingBillTotal = _billRepository.AddItemsAndSettleBill(
+                    var result = _billRepository.AddItemsAndPayBill(
                         billId,
                         BuildNewBillItemsFromCart(),
                         paymentMethod,
+                        amount,
                         DateTime.Now);
 
-                    MessageBox.Show(
-      $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {existingBillTotal:F2}\nMethod: {paymentMethod}");
-                    var receipt = BuildReceiptData(billId, paymentMethod, saleTypeText, tableName);
-                    _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
-
+                    total = result.Total;
+                    due = result.Due;
                 }
                 else
                 {
@@ -548,25 +577,30 @@ namespace POSGardenia
                         CreatedAt = DateTime.Now
                     };
 
-                    var result = _billRepository.CreateQuickSaleAndSettle(
+                    var result = _billRepository.CreateQuickSaleAndPay(
                         bill,
                         BuildNewBillItemsFromCart(),
                         paymentMethod,
+                        amount,
                         DateTime.Now);
 
                     billId = result.BillId;
-                    string visibleBillNo = GetVisibleBillNumber(billId);
-
-                    decimal total = result.Total;
+                    total = result.Total;
+                    due = result.Due;
                     saleTypeText = "Quick Sale";
                     tableName = "Quick Sale";
-
-                    MessageBox.Show(
-      $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nMethod: {paymentMethod}");
-                    var receipt = BuildReceiptData(billId, paymentMethod, saleTypeText, tableName);
-                    _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
-
                 }
+
+                string visibleBillNo = GetVisibleBillNumber(billId);
+                string dueText = due > 0
+                    ? $"\nDue balance: {due:F2} (bill stays open)"
+                    : "\nBill fully paid.";
+
+                MessageBox.Show(
+  $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nPaid now: {amount:F2} ({paymentMethod}){dueText}");
+
+                var receipt = BuildReceiptData(billId, saleTypeText, tableName);
+                _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
 
                 _cart.Clear();
                 ResetPosBillSelection();
@@ -605,7 +639,7 @@ namespace POSGardenia
         private void LoadTables()
         {
             TablesDataGrid.ItemsSource = null;
-            TablesDataGrid.ItemsSource = _diningTableRepository.GetActiveTables();
+            TablesDataGrid.ItemsSource = _diningTableRepository.GetAll();
         }
 
         private void SaveCategory_Click(object sender, RoutedEventArgs e)
@@ -615,6 +649,15 @@ namespace POSGardenia
             if (string.IsNullOrWhiteSpace(name))
             {
                 MessageBox.Show("Enter category name.");
+                return;
+            }
+
+            var existing = _categoryRepository.GetByName(name);
+            if (existing != null)
+            {
+                MessageBox.Show(existing.IsActive
+                    ? $"A category named '{name}' already exists."
+                    : $"A category named '{name}' already exists but is deactivated. Select it and click Reactivate Selected instead of creating a new one.");
                 return;
             }
 
@@ -646,6 +689,49 @@ namespace POSGardenia
             MessageBox.Show("Category deactivated.");
         }
 
+        private void ReactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
+        {
+            if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
+            {
+                MessageBox.Show("Select a category first.");
+                return;
+            }
+
+            _categoryRepository.Reactivate(selectedCategory.Id);
+
+            LoadCategories();
+            LoadCategoriesGrid();
+            LoadPosCategories();
+            LoadPosProducts();
+
+            MessageBox.Show("Category reactivated.");
+        }
+
+        private void DeleteSelectedCategoryPermanently_Click(object sender, RoutedEventArgs e)
+        {
+            if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
+            {
+                MessageBox.Show("Select a category first.");
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                $"Remove category '{selectedCategory.Name}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
+                "Confirm Delete",
+                MessageBoxButton.YesNo);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+
+            _categoryRepository.MarkDeleted(selectedCategory.Id);
+
+            LoadCategories();
+            LoadCategoriesGrid();
+            LoadPosCategories();
+
+            MessageBox.Show("Category deleted.");
+        }
+
         private void SaveProduct_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -667,6 +753,15 @@ namespace POSGardenia
                 if (!decimal.TryParse(PriceTextBox.Text?.Trim(), out decimal price))
                 {
                     MessageBox.Show("Enter valid price.");
+                    return;
+                }
+
+                var existingProduct = _productRepository.GetByName(name);
+                if (existingProduct != null && (_selectedManagementProduct == null || existingProduct.Id != _selectedManagementProduct.Id))
+                {
+                    MessageBox.Show(existingProduct.IsActive
+                        ? $"A product named '{name}' already exists."
+                        : $"A product named '{name}' already exists but is deactivated. Select it and click Reactivate Selected Product instead of creating a new one.");
                     return;
                 }
 
@@ -733,6 +828,55 @@ namespace POSGardenia
             }
         }
 
+        private void ReactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
+                {
+                    MessageBox.Show("Select a product first.");
+                    return;
+                }
+
+                _productRepository.Reactivate(selectedProduct.Id);
+
+                ClearProductForm();
+                LoadProducts();
+                LoadPosProducts();
+
+                MessageBox.Show("Product reactivated.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to reactivate product.\n" + ex.Message);
+            }
+        }
+
+        private void DeleteSelectedProductPermanently_Click(object sender, RoutedEventArgs e)
+        {
+            if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
+            {
+                MessageBox.Show("Select a product first.");
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                $"Remove product '{selectedProduct.Name}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
+                "Confirm Delete",
+                MessageBoxButton.YesNo);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+
+            _productRepository.MarkDeleted(selectedProduct.Id);
+
+            ClearProductForm();
+            LoadProducts();
+            LoadPosProducts();
+
+            MessageBox.Show("Product deleted.");
+        }
+
         private void SaveTable_Click(object sender, RoutedEventArgs e)
         {
             var tableName = TableNameTextBox.Text.Trim();
@@ -768,6 +912,46 @@ namespace POSGardenia
             MessageBox.Show("Table deactivated.");
         }
 
+        private void ReactivateSelectedTable_Click(object sender, RoutedEventArgs e)
+        {
+            if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
+            {
+                MessageBox.Show("Select a table first.");
+                return;
+            }
+
+            _diningTableRepository.Reactivate(selectedTable.Id);
+
+            LoadTables();
+            LoadPosTables();
+
+            MessageBox.Show("Table reactivated.");
+        }
+
+        private void DeleteSelectedTablePermanently_Click(object sender, RoutedEventArgs e)
+        {
+            if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
+            {
+                MessageBox.Show("Select a table first.");
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                $"Remove table '{selectedTable.TableName}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
+                "Confirm Delete",
+                MessageBoxButton.YesNo);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+
+            _diningTableRepository.MarkDeleted(selectedTable.Id);
+
+            LoadTables();
+            LoadPosTables();
+
+            MessageBox.Show("Table deleted.");
+        }
+
         // -----------------------------
         // REPORTS
         // -----------------------------
@@ -784,6 +968,9 @@ namespace POSGardenia
                 TodaySalesTextBlock.Text = sales.ToString("F2");
                 TodayBillCountTextBlock.Text = paidBills.ToString();
                 OpenBillsCountTextBlock.Text = _billRepository.GetOpenBillsCount().ToString();
+
+                var outstanding = _paymentRepository.GetOutstandingSummary();
+                PartiallyPaidSummaryTextBlock.Text = $"{outstanding.PartiallyPaidBills} bill(s) | Due {outstanding.TotalDue:F2}";
 
                 ItemSalesReportDataGrid.ItemsSource = null;
                 ItemSalesReportDataGrid.ItemsSource = _billItemRepository.GetItemSalesReportBySingleDate(reportDate);
@@ -990,7 +1177,7 @@ namespace POSGardenia
                     return;
                 }
 
-                var billItems = _billItemRepository.GetByBillIdForDisplay(billId);
+                var billItems = _billItemRepository.GetActiveByBillIdForDisplay(billId);
 
                 _cart.Clear();
 
@@ -1305,6 +1492,27 @@ namespace POSGardenia
                         Foreground = new SolidColorBrush(Color.FromRgb(15, 23, 42))
                     });
 
+                    if (bill.IsPartiallyPaid)
+                    {
+                        stack.Children.Add(new TextBlock
+                        {
+                            Text = $"Paid: {bill.PaidAmount:F2}    Due: {bill.DueAmount:F2}",
+                            FontSize = 14,
+                            FontWeight = FontWeights.SemiBold,
+                            Margin = new Thickness(0, 4, 0, 0),
+                            Foreground = new SolidColorBrush(Color.FromRgb(194, 65, 12))
+                        });
+
+                        stack.Children.Add(new TextBlock
+                        {
+                            Text = "PARTIALLY PAID",
+                            FontSize = 12,
+                            FontWeight = FontWeights.Bold,
+                            Margin = new Thickness(0, 2, 0, 0),
+                            Foreground = new SolidColorBrush(Color.FromRgb(194, 65, 12))
+                        });
+                    }
+
                     border.Child = stack;
 
                     border.MouseLeftButtonUp += (s, e) =>
@@ -1347,6 +1555,18 @@ namespace POSGardenia
                 SelectedBillItemsDataGrid.ItemsSource = _billItemRepository.GetByBillIdForDisplay(selectedBill.Id);
 
                 SelectedBillTotalTextBlock.Text = $"Bill Total: {total:F2}";
+
+                decimal paid = _paymentRepository.GetPaidTotalForBill(selectedBill.Id);
+                if (paid > 0)
+                {
+                    SelectedBillPaidDueTextBlock.Text = $"Paid: {paid:F2}    Due: {Math.Max(0, total - paid):F2}    (Partially Paid)";
+                    SelectedBillPaidDueTextBlock.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    SelectedBillPaidDueTextBlock.Text = "";
+                    SelectedBillPaidDueTextBlock.Visibility = Visibility.Collapsed;
+                }
 
                 var openBills = _billRepository.GetOpenBillsForDisplay();
                 RenderOpenBillCards(openBills);
@@ -1484,6 +1704,7 @@ namespace POSGardenia
                     SelectedTableBillTitleTextBlock.Text = "Select an open bill";
                     SelectedTableBillInfoTextBlock.Text = "";
                     SelectedBillTotalTextBlock.Text = "Bill Total: 0.00";
+                    SelectedBillPaidDueTextBlock.Visibility = Visibility.Collapsed;
                     return;
                 }
 
@@ -1496,7 +1717,7 @@ namespace POSGardenia
             }
         }
 
-        private ReceiptData BuildReceiptData(int billId, string paymentMethod, string billTypeText, string tableName)
+        private ReceiptData BuildReceiptData(int billId, string billTypeText, string tableName)
         {
             try
             {
@@ -1506,15 +1727,23 @@ namespace POSGardenia
                 var items = _billItemRepository.GetReceiptLinesByBillId(billId);
                 decimal total = items.Sum(x => x.LineTotal);
 
+                // Cash/card are cumulative over every payment made on this bill so far.
+                var (cash, card) = _paymentRepository.GetPaidByMethodForBill(billId);
+                decimal due = Math.Max(0, total - cash - card);
+                if (due <= 0.01m)
+                    due = 0;
+
                 return new ReceiptData
                 {
                     BusinessName = "Gardenia Restaurant",
                     BillNo = _billRepository.GetVisibleBillNumber(billId),
                     TableName = string.IsNullOrWhiteSpace(tableName) ? "Quick Sale" : tableName,
                     BillType = billTypeText,
-                    PaymentMethod = paymentMethod,
                     PrintedAt = DateTime.Now,
                     Total = total,
+                    CashAmount = cash,
+                    CardAmount = card,
+                    DueAmount = due,
                     Items = items
                 };
             }
@@ -2136,13 +2365,8 @@ namespace POSGardenia
                         return;
                 }
 
-                string paymentMethod = string.IsNullOrWhiteSpace(_selectedHistoryBill.PaymentMethod)
-                    ? "N/A"
-                    : _selectedHistoryBill.PaymentMethod;
-
                 var receipt = BuildReceiptData(
                     _selectedHistoryBill.Id,
-                    paymentMethod,
                     _selectedHistoryBill.BillType,
                     _selectedHistoryBill.TableName);
 

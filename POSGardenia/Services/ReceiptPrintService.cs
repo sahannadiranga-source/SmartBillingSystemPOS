@@ -79,7 +79,6 @@ namespace POSGardenia.Services
                     BillNo = "TEST-001",
                     TableName = "Test",
                     BillType = "TEST PRINT",
-                    PaymentMethod = "N/A",
                     PrintedAt = DateTime.Now,
                     Items =
                     {
@@ -118,7 +117,6 @@ namespace POSGardenia.Services
             document.Blocks.Add(CreateParagraph($"Bill No : {receipt.BillNo}"));
             document.Blocks.Add(CreateParagraph($"Type    : {receipt.BillType}"));
             document.Blocks.Add(CreateParagraph($"Table   : {receipt.TableName}"));
-            document.Blocks.Add(CreateParagraph($"Payment : {receipt.PaymentMethod}"));
             document.Blocks.Add(CreateParagraph($"Printed : {receipt.PrintedAt:yyyy-MM-dd HH:mm:ss}"));
             document.Blocks.Add(CreateParagraph("--------------------------------"));
 
@@ -142,6 +140,15 @@ namespace POSGardenia.Services
 
             document.Blocks.Add(CreateParagraph("--------------------------------"));
             document.Blocks.Add(CreateParagraph($"TOTAL: {receipt.Total:0.00}", 16, FontWeights.Bold, TextAlignment.Right));
+            document.Blocks.Add(CreateParagraph($"CASH: {receipt.CashAmount:0.00}", 13, FontWeights.Normal, TextAlignment.Right));
+            document.Blocks.Add(CreateParagraph($"CARD: {receipt.CardAmount:0.00}", 13, FontWeights.Normal, TextAlignment.Right));
+
+            if (receipt.DueAmount > 0)
+            {
+                document.Blocks.Add(CreateParagraph($"DUE: {receipt.DueAmount:0.00}", 16, FontWeights.Bold, TextAlignment.Right));
+                document.Blocks.Add(CreateParagraph("*** PARTIALLY PAID ***", 13, FontWeights.Bold, TextAlignment.Center));
+            }
+
             document.Blocks.Add(CreateParagraph("--------------------------------", 12, FontWeights.Normal, TextAlignment.Center));
             document.Blocks.Add(CreateParagraph("Thank you!", 14, FontWeights.Bold, TextAlignment.Center));
 

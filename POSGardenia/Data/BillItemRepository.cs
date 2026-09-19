@@ -1,4 +1,4 @@
-﻿using POSGardenia.Models;
+using POSGardenia.Models;
 using System.Collections.Generic;
 using System;
 namespace POSGardenia.Data
@@ -79,6 +79,51 @@ namespace POSGardenia.Data
             return items;
         }
 
+        // ACTIVE-only variant used when loading an open bill into the POS cart, so the cart
+        // total (and the default amount to pay) matches what the bill is actually charged.
+        public List<BillItemDisplay> GetActiveByBillIdForDisplay(int billId)
+        {
+            var items = new List<BillItemDisplay>();
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        SELECT
+            bi.Id,
+            p.Name,
+            bi.UnitPrice,
+            bi.Quantity,
+            (bi.UnitPrice * bi.Quantity) as LineTotal,
+            bi.Status,
+            bi.IsKitchenPrinted
+        FROM BillItems bi
+        INNER JOIN Products p ON bi.ProductId = p.Id
+        WHERE bi.BillId = @billId
+          AND bi.Status = 'ACTIVE'
+        ORDER BY bi.Id;";
+
+            command.Parameters.AddWithValue("@billId", billId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(new BillItemDisplay
+                {
+                    Id = reader.GetInt32(0),
+                    ProductName = reader.GetString(1),
+                    UnitPrice = reader.GetDecimal(2),
+                    Quantity = reader.GetDecimal(3),
+                    LineTotal = reader.GetDecimal(4),
+                    Status = reader.GetString(5),
+                    IsKitchenPrinted = reader.GetInt32(6) == 1
+                });
+            }
+
+            return items;
+        }
+
         public decimal GetBillTotal(int billId)
         {
             using var connection = DatabaseHelper.GetConnection();
@@ -112,9 +157,9 @@ namespace POSGardenia.Data
             IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
         FROM BillItems bi
         INNER JOIN Products p ON bi.ProductId = p.Id
-        INNER JOIN Payments pay ON bi.BillId = pay.BillId
+        INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
         WHERE bi.Status = 'ACTIVE'
-          AND date(pay.PaidAt) = date('now', 'localtime')
+          AND date(pay.FirstPaidAt) = date('now', 'localtime')
         GROUP BY p.Name
         ORDER BY TotalSales DESC;";
 
@@ -263,10 +308,10 @@ namespace POSGardenia.Data
                 IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
             FROM BillItems bi
             INNER JOIN Products p ON bi.ProductId = p.Id
-            INNER JOIN Payments pay ON bi.BillId = pay.BillId
+            INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
             WHERE bi.Status = 'ACTIVE'
-              AND date(pay.PaidAt) >= date(@fromDate)
-              AND date(pay.PaidAt) <= date(@toDate)
+              AND date(pay.FirstPaidAt) >= date(@fromDate)
+              AND date(pay.FirstPaidAt) <= date(@toDate)
             GROUP BY p.Name
             ORDER BY TotalSales DESC;";
 
@@ -309,9 +354,9 @@ namespace POSGardenia.Data
                 IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
             FROM BillItems bi
             INNER JOIN Products p ON bi.ProductId = p.Id
-            INNER JOIN Payments pay ON bi.BillId = pay.BillId
+            INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
             WHERE bi.Status = 'ACTIVE'
-              AND date(pay.PaidAt) = date(@reportDate)
+              AND date(pay.FirstPaidAt) = date(@reportDate)
             GROUP BY p.Name
             ORDER BY TotalSales DESC;";
 

@@ -23,6 +23,32 @@ namespace POSGardenia.Data
             command.ExecuteNonQuery();
         }
 
+        // Used to enforce name uniqueness among non-deleted categories before Add/Update.
+        public Category? GetByName(string name)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT Id, Name, IsActive
+                FROM Categories
+                WHERE Name = @name AND IsDeleted = 0
+                LIMIT 1;";
+            command.Parameters.AddWithValue("@name", name);
+
+            using var reader = command.ExecuteReader();
+            if (!reader.Read())
+                return null;
+
+            return new Category
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                IsActive = reader.GetInt32(2) == 1
+            };
+        }
+
         public List<Category> GetAll()
         {
             var categories = new List<Category>();
@@ -31,7 +57,7 @@ namespace POSGardenia.Data
             connection.Open();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Name, IsActive FROM Categories ORDER BY Name;";
+            command.CommandText = "SELECT Id, Name, IsActive FROM Categories WHERE IsDeleted = 0 ORDER BY Name;";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -58,7 +84,7 @@ namespace POSGardenia.Data
             command.CommandText = @"
         SELECT Id, Name, IsActive
         FROM Categories
-        WHERE IsActive = 1
+        WHERE IsActive = 1 AND IsDeleted = 0
         ORDER BY Name;";
 
             using var reader = command.ExecuteReader();
@@ -86,6 +112,36 @@ namespace POSGardenia.Data
         SET IsActive = 0
         WHERE Id = @id;";
 
+            command.Parameters.AddWithValue("@id", categoryId);
+            command.ExecuteNonQuery();
+        }
+
+        public void Reactivate(int categoryId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE Categories
+        SET IsActive = 1
+        WHERE Id = @id;";
+
+            command.Parameters.AddWithValue("@id", categoryId);
+            command.ExecuteNonQuery();
+        }
+
+        public void MarkDeleted(int categoryId)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        UPDATE Categories
+        SET IsDeleted = 1,
+            IsActive = 0
+        WHERE Id = @id;";
             command.Parameters.AddWithValue("@id", categoryId);
             command.ExecuteNonQuery();
         }
