@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using POSGardenia.Models;
+using POSGardenia.Services;
 using System;
 using System.Collections.Generic;
 
@@ -7,6 +8,8 @@ namespace POSGardenia.Data
 {
     public class BillRepository
     {
+        private readonly StockService _stockService = new();
+
         public int Create(Bill bill)
         {
             try
@@ -314,15 +317,42 @@ namespace POSGardenia.Data
                         throw new Exception("Cannot void a bill that already has payments.");
                 }
 
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
+                using var transaction = connection.BeginTransaction();
+
+                int voided;
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
             UPDATE Bills
             SET Status = 'VOID'
             WHERE Id = @id
               AND Status = 'OPEN';";
 
-                command.Parameters.AddWithValue("@id", billId);
-                command.ExecuteNonQuery();
+                    command.Parameters.AddWithValue("@id", billId);
+                    voided = command.ExecuteNonQuery();
+                }
+
+                // A voided bill never happened: put back the stock of every line on it.
+                if (voided > 0)
+                {
+                    var itemIds = new List<int>();
+                    using (var itemsCommand = connection.CreateCommand())
+                    {
+                        itemsCommand.Transaction = transaction;
+                        itemsCommand.CommandText = "SELECT Id FROM BillItems WHERE BillId = @id;";
+                        itemsCommand.Parameters.AddWithValue("@id", billId);
+
+                        using var reader = itemsCommand.ExecuteReader();
+                        while (reader.Read())
+                            itemIds.Add(reader.GetInt32(0));
+                    }
+
+                    foreach (var itemId in itemIds)
+                        _stockService.ReverseSale(connection, transaction, itemId, DateTime.Today);
+                }
+
+                transaction.Commit();
             }
             catch (Exception ex)
             {
@@ -358,6 +388,7 @@ namespace POSGardenia.Data
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
+        // Saves the line and deducts its stock inside the caller's transaction.
         private void InsertBillItem(
             SqliteConnection connection,
             SqliteTransaction transaction,
@@ -372,16 +403,22 @@ namespace POSGardenia.Data
             INSERT INTO BillItems
             (BillId, ProductId, UnitPrice, Quantity, Status, IsKitchenPrinted)
             VALUES
-            (@billId, @productId, @unitPrice, @quantity, @status, @isKitchenPrinted);";
+            (@billId, @productId, @unitPrice, @quantity, @status, @isKitchenPrinted);
+            SELECT last_insert_rowid();";
+
+            string status = string.IsNullOrWhiteSpace(billItem.Status) ? "ACTIVE" : billItem.Status;
 
             command.Parameters.AddWithValue("@billId", billItem.BillId);
             command.Parameters.AddWithValue("@productId", billItem.ProductId);
             command.Parameters.AddWithValue("@unitPrice", billItem.UnitPrice);
             command.Parameters.AddWithValue("@quantity", billItem.Quantity);
-            command.Parameters.AddWithValue("@status", string.IsNullOrWhiteSpace(billItem.Status) ? "ACTIVE" : billItem.Status);
+            command.Parameters.AddWithValue("@status", status);
             command.Parameters.AddWithValue("@isKitchenPrinted", billItem.IsKitchenPrinted ? 1 : 0);
 
-            command.ExecuteNonQuery();
+            int billItemId = Convert.ToInt32(command.ExecuteScalar());
+
+            if (status == "ACTIVE")
+                _stockService.RecordSale(connection, transaction, billItemId, billItem.ProductId, billItem.Quantity, DateTime.Today);
         }
 
         private void InsertPayment(

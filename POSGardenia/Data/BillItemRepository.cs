@@ -1,10 +1,14 @@
 using POSGardenia.Models;
+using POSGardenia.Services;
 using System.Collections.Generic;
 using System;
 namespace POSGardenia.Data
 {
     public class BillItemRepository
     {
+        private readonly StockService _stockService = new();
+
+        // The line and its stock deduction are saved together, or not at all.
         public void Add(BillItem billItem)
         {
             try
@@ -14,22 +18,32 @@ namespace POSGardenia.Data
 
                 using var connection = DatabaseHelper.GetConnection();
                 connection.Open();
+                using var transaction = connection.BeginTransaction();
 
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
             INSERT INTO BillItems
             (BillId, ProductId, UnitPrice, Quantity, Status, IsKitchenPrinted)
             VALUES
-            (@billId, @productId, @unitPrice, @quantity, @status, @isKitchenPrinted);";
+            (@billId, @productId, @unitPrice, @quantity, @status, @isKitchenPrinted);
+            SELECT last_insert_rowid();";
 
-                command.Parameters.AddWithValue("@billId", billItem.BillId);
-                command.Parameters.AddWithValue("@productId", billItem.ProductId);
-                command.Parameters.AddWithValue("@unitPrice", billItem.UnitPrice);
-                command.Parameters.AddWithValue("@quantity", billItem.Quantity);
-                command.Parameters.AddWithValue("@status", billItem.Status ?? "ACTIVE");
-                command.Parameters.AddWithValue("@isKitchenPrinted", billItem.IsKitchenPrinted ? 1 : 0);
+                    command.Parameters.AddWithValue("@billId", billItem.BillId);
+                    command.Parameters.AddWithValue("@productId", billItem.ProductId);
+                    command.Parameters.AddWithValue("@unitPrice", billItem.UnitPrice);
+                    command.Parameters.AddWithValue("@quantity", billItem.Quantity);
+                    command.Parameters.AddWithValue("@status", billItem.Status ?? "ACTIVE");
+                    command.Parameters.AddWithValue("@isKitchenPrinted", billItem.IsKitchenPrinted ? 1 : 0);
 
-                command.ExecuteNonQuery();
+                    int billItemId = Convert.ToInt32(command.ExecuteScalar());
+
+                    if ((billItem.Status ?? "ACTIVE") == "ACTIVE")
+                        _stockService.RecordSale(connection, transaction, billItemId, billItem.ProductId, billItem.Quantity, DateTime.Today);
+                }
+
+                transaction.Commit();
             }
             catch (Exception ex)
             {
@@ -429,15 +443,24 @@ namespace POSGardenia.Data
             {
                 using var connection = DatabaseHelper.GetConnection();
                 connection.Open();
+                using var transaction = connection.BeginTransaction();
 
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
             UPDATE BillItems
             SET Status = 'CANCELLED'
             WHERE Id = @id;";
 
-                command.Parameters.AddWithValue("@id", billItemId);
-                command.ExecuteNonQuery();
+                    command.Parameters.AddWithValue("@id", billItemId);
+                    command.ExecuteNonQuery();
+                }
+
+                // Puts the stock back (does nothing for untracked products or an already-reversed line).
+                _stockService.ReverseSale(connection, transaction, billItemId, DateTime.Today);
+
+                transaction.Commit();
             }
             catch (Exception ex)
             {

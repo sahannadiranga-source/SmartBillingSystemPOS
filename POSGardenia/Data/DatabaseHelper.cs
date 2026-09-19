@@ -6,8 +6,12 @@ namespace POSGardenia.Data
 {
     public static class DatabaseHelper
     {
+        // POSGARDENIA_DATA_DIR lets tests and scripts point at a throwaway database folder
+        // instead of the real %LocalAppData%\POSGardenia one. Unset in normal use.
         private static readonly string DbFolder =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "POSGardenia");
+            Environment.GetEnvironmentVariable("POSGARDENIA_DATA_DIR") is { Length: > 0 } overrideDir
+                ? overrideDir
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "POSGardenia");
 
         private static readonly string DbPath =
             Path.Combine(DbFolder, "posgardenia.db");
@@ -64,6 +68,28 @@ namespace POSGardenia.Data
                 {
                     alterDiningTables1.CommandText = "ALTER TABLE DiningTables ADD COLUMN IsDeleted INTEGER NOT NULL DEFAULT 0;";
                     try { alterDiningTables1.ExecuteNonQuery(); } catch { }
+                }
+
+                // Inventory: link a sellable product to the physical stock it consumes.
+                // StockItemId NULL = product is not stock-tracked (unchanged behaviour).
+                using (var alterProducts2 = connection.CreateCommand())
+                {
+                    alterProducts2.CommandText = "ALTER TABLE Products ADD COLUMN StockItemId INTEGER NULL REFERENCES StockItems(Id);";
+                    try { alterProducts2.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var alterProducts3 = connection.CreateCommand())
+                {
+                    alterProducts3.CommandText = "ALTER TABLE Products ADD COLUMN UnitsPerSale REAL NULL;";
+                    try { alterProducts3.ExecuteNonQuery(); } catch { }
+                }
+
+                // An earlier inventory attempt left StockItems in some databases without this column.
+                // Bring it up to date (no-op on fresh installs, where CREATE TABLE already has it).
+                using (var alterStockItems1 = connection.CreateCommand())
+                {
+                    alterStockItems1.CommandText = "ALTER TABLE StockItems ADD COLUMN IsDeleted INTEGER NOT NULL DEFAULT 0;";
+                    try { alterStockItems1.ExecuteNonQuery(); } catch { }
                 }
 
                 using (var pragmaCommand = connection.CreateCommand())
@@ -144,6 +170,32 @@ namespace POSGardenia.Data
                         CreatedAt TEXT NOT NULL
                     );";
 
+                string createStockItemsTable = @"
+                    CREATE TABLE IF NOT EXISTS StockItems (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Name TEXT NOT NULL,
+                        CategoryId INTEGER NULL,
+                        TrackingUnit TEXT NOT NULL,
+                        CurrentQuantity REAL NOT NULL DEFAULT 0,
+                        IsActive INTEGER NOT NULL DEFAULT 1,
+                        IsDeleted INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY (CategoryId) REFERENCES Categories(Id)
+                    );";
+
+                string createStockMovementsTable = @"
+                    CREATE TABLE IF NOT EXISTS StockMovements (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        StockItemId INTEGER NOT NULL,
+                        MovementDate TEXT NOT NULL,
+                        MovementType TEXT NOT NULL,
+                        QuantityChange REAL NOT NULL,
+                        BillItemId INTEGER NULL,
+                        Note TEXT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        FOREIGN KEY (StockItemId) REFERENCES StockItems(Id),
+                        FOREIGN KEY (BillItemId) REFERENCES BillItems(Id)
+                    );";
+
                 using var command = connection.CreateCommand();
 
                 command.CommandText = createCategoriesTable;
@@ -167,6 +219,34 @@ namespace POSGardenia.Data
                 command.CommandText = createExpensesTable;
                 command.ExecuteNonQuery();
 
+                command.CommandText = createStockItemsTable;
+                command.ExecuteNonQuery();
+
+                command.CommandText = createStockMovementsTable;
+                command.ExecuteNonQuery();
+
+                // The kitchen flag moved from the product to its category. When the column is first
+                // added, a category becomes a kitchen category if any of its products was a kitchen
+                // item, and its products then follow the category (so nothing is missed on the
+                // kitchen ticket). Products.IsKitchenItem stays as the copy the kitchen queries read.
+                bool addedKitchenColumn = false;
+                using (var alterCategoriesKitchen = connection.CreateCommand())
+                {
+                    alterCategoriesKitchen.CommandText = "ALTER TABLE Categories ADD COLUMN IsKitchenItem INTEGER NOT NULL DEFAULT 0;";
+                    try { alterCategoriesKitchen.ExecuteNonQuery(); addedKitchenColumn = true; } catch { }
+                }
+
+                if (addedKitchenColumn)
+                {
+                    using var syncKitchen = connection.CreateCommand();
+                    syncKitchen.CommandText = @"
+                        UPDATE Categories SET IsKitchenItem = 1
+                        WHERE Id IN (SELECT CategoryId FROM Products WHERE IsKitchenItem = 1);
+                        UPDATE Products SET IsKitchenItem =
+                            IFNULL((SELECT c.IsKitchenItem FROM Categories c WHERE c.Id = Products.CategoryId), 0);";
+                    try { syncKitchen.ExecuteNonQuery(); } catch { }
+                }
+
                 // Enforce name uniqueness among non-deleted rows only (partial index), so a
                 // soft-deleted category/product never blocks reusing its name for a new one.
                 // Wrapped/swallowed like the ALTER TABLE calls above: if existing data still
@@ -188,6 +268,18 @@ namespace POSGardenia.Data
                 {
                     indexPayments.CommandText = "CREATE INDEX IF NOT EXISTS IX_Payments_BillId ON Payments(BillId);";
                     try { indexPayments.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var indexMovementsItemDate = connection.CreateCommand())
+                {
+                    indexMovementsItemDate.CommandText = "CREATE INDEX IF NOT EXISTS IX_StockMovements_Item_Date ON StockMovements(StockItemId, MovementDate);";
+                    try { indexMovementsItemDate.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var indexMovementsBillItem = connection.CreateCommand())
+                {
+                    indexMovementsBillItem.CommandText = "CREATE INDEX IF NOT EXISTS IX_StockMovements_BillItemId ON StockMovements(BillItemId);";
+                    try { indexMovementsBillItem.ExecuteNonQuery(); } catch { }
                 }
             }
             catch (Exception ex)

@@ -17,6 +17,8 @@ namespace POSGardenia
     {
         private readonly CategoryRepository _categoryRepository = new();
         private readonly ProductRepository _productRepository = new();
+        private readonly ProductSetupService _productSetupService = new();
+        private readonly StockItemRepository _stockItemRepository = new();
         private readonly DiningTableRepository _diningTableRepository = new();
         private readonly BillRepository _billRepository = new();
         private readonly BillItemRepository _billItemRepository = new();
@@ -44,6 +46,9 @@ namespace POSGardenia
         public MainWindow()
         {
             InitializeComponent();
+
+            WireProductSetupControls();
+            WireInventoryControls();
 
             LoadAppSettings();
             LoadPrinters();
@@ -147,6 +152,13 @@ namespace POSGardenia
             var products = _selectedCategoryId == null
                 ? _activeProducts
                 : _activeProducts.Where(p => p.CategoryId == _selectedCategoryId.Value).ToList();
+
+            // Products of the same main item sit together, biggest serving first.
+            products = products
+                .OrderBy(p => p.MainItemName ?? p.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(p => p.UnitsPerSale ?? 0)
+                .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             foreach (var product in products)
             {
@@ -642,33 +654,88 @@ namespace POSGardenia
             TablesDataGrid.ItemsSource = _diningTableRepository.GetAll();
         }
 
+        // Adds a new category, or updates the one loaded into the form (selected in the list).
         private void SaveCategory_Click(object sender, RoutedEventArgs e)
         {
-            var name = CategoryNameTextBox.Text.Trim();
-
-            if (string.IsNullOrWhiteSpace(name))
+            try
             {
-                MessageBox.Show("Enter category name.");
-                return;
-            }
+                var name = CategoryNameTextBox.Text.Trim();
 
-            var existing = _categoryRepository.GetByName(name);
-            if (existing != null)
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    MessageBox.Show("Enter category name.");
+                    return;
+                }
+
+                bool kitchen = CategoryKitchenCheckBox.IsChecked == true;
+                var existing = _categoryRepository.GetByName(name);
+
+                if (_selectedManagementCategory == null)
+                {
+                    if (existing != null)
+                    {
+                        MessageBox.Show(existing.IsActive
+                            ? $"A category named '{name}' already exists."
+                            : $"A category named '{name}' already exists but is deactivated. Select it and click Reactivate Selected instead of creating a new one.");
+                        return;
+                    }
+
+                    _categoryRepository.Add(name, kitchen);
+                    MessageBox.Show("Category saved.");
+                }
+                else
+                {
+                    if (existing != null && existing.Id != _selectedManagementCategory.Id)
+                    {
+                        MessageBox.Show($"A category named '{name}' already exists.");
+                        return;
+                    }
+
+                    _categoryRepository.Update(_selectedManagementCategory.Id, name, kitchen);
+                    MessageBox.Show("Category updated.");
+                }
+
+                ClearCategoryForm();
+                RefreshCategoryViews();
+            }
+            catch (Exception ex)
             {
-                MessageBox.Show(existing.IsActive
-                    ? $"A category named '{name}' already exists."
-                    : $"A category named '{name}' already exists but is deactivated. Select it and click Reactivate Selected instead of creating a new one.");
-                return;
+                MessageBox.Show("Failed to save/update category.\n" + ex.Message);
             }
+        }
 
-            _categoryRepository.Add(name);
+        private Category? _selectedManagementCategory = null;
+
+        // Selecting a category in the list loads it into the form and switches Save to Update.
+        private void LoadSelectedCategoryIntoForm(Category selected)
+        {
+            _selectedManagementCategory = selected;
+
+            CategoryNameTextBox.Text = selected.Name;
+            CategoryKitchenCheckBox.IsChecked = selected.IsKitchenItem;
+            SaveCategoryButton.Content = "Update Category";
+        }
+
+        private void ClearCategoryForm()
+        {
+            _selectedManagementCategory = null;
+
             CategoryNameTextBox.Clear();
+            CategoryKitchenCheckBox.IsChecked = false;
+            SaveCategoryButton.Content = "Save Category";
+            CategoriesDataGrid.SelectedItem = null;
+        }
 
+        private void ClearCategoryForm_Click(object sender, RoutedEventArgs e) => ClearCategoryForm();
+
+        // A category change can affect the pickers, the product list (category name, kitchen flag) and the POS.
+        private void RefreshCategoryViews()
+        {
             LoadCategories();
             LoadCategoriesGrid();
+            LoadProducts();
             LoadPosCategories();
-
-            MessageBox.Show("Category saved.");
+            LoadPosProducts();
         }
 
         private void DeactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
@@ -681,6 +748,7 @@ namespace POSGardenia
 
             _categoryRepository.Deactivate(selectedCategory.Id);
 
+            ClearCategoryForm();
             LoadCategories();
             LoadCategoriesGrid();
             LoadPosCategories();
@@ -699,6 +767,7 @@ namespace POSGardenia
 
             _categoryRepository.Reactivate(selectedCategory.Id);
 
+            ClearCategoryForm();
             LoadCategories();
             LoadCategoriesGrid();
             LoadPosCategories();
@@ -725,6 +794,7 @@ namespace POSGardenia
 
             _categoryRepository.MarkDeleted(selectedCategory.Id);
 
+            ClearCategoryForm();
             LoadCategories();
             LoadCategoriesGrid();
             LoadPosCategories();
@@ -750,14 +820,20 @@ namespace POSGardenia
                     return;
                 }
 
-                if (!decimal.TryParse(PriceTextBox.Text?.Trim(), out decimal price))
+                if (!decimal.TryParse(PriceTextBox.Text?.Trim(), out decimal price) || price < 0)
                 {
                     MessageBox.Show("Enter valid price.");
                     return;
                 }
 
+                if (_selectedManagementProduct != null)
+                {
+                    SaveEditedProduct(name, selectedCategory, price);
+                    return;
+                }
+
                 var existingProduct = _productRepository.GetByName(name);
-                if (existingProduct != null && (_selectedManagementProduct == null || existingProduct.Id != _selectedManagementProduct.Id))
+                if (existingProduct != null)
                 {
                     MessageBox.Show(existingProduct.IsActive
                         ? $"A product named '{name}' already exists."
@@ -765,45 +841,199 @@ namespace POSGardenia
                     return;
                 }
 
-                if (_selectedManagementProduct == null)
+                if (TrackStockCheckBox.IsChecked == true)
                 {
-                    var product = new Product
-                    {
-                        Name = name,
-                        CategoryId = selectedCategory.Id,
-                        SellingPrice = price,
-                        IsKitchenItem = KitchenItemCheckBox.IsChecked == true,
-                        IsActive = true
-                    };
+                    if (!TryReadTrackedSettings(name, out string mainItem, out string unit, out decimal used))
+                        return;
 
-                    _productRepository.Add(product);
-                    MessageBox.Show("Product saved.");
+                    _productSetupService.CreateTrackedProduct(
+                        name, selectedCategory.Id, price, mainItem, unit, used);
                 }
                 else
                 {
-                    var updatedProduct = new Product
+                    _productRepository.Add(new Product
                     {
-                        Id = _selectedManagementProduct.Id,
                         Name = name,
                         CategoryId = selectedCategory.Id,
                         SellingPrice = price,
-                        IsKitchenItem = KitchenItemCheckBox.IsChecked == true,
                         IsActive = true
-                    };
-
-                    _productRepository.Update(updatedProduct);
-                    MessageBox.Show("Product updated.");
+                    });
                 }
 
                 ClearProductForm();
                 LoadProducts();
                 LoadPosProducts();
+                LoadMainItemOptions();
+
+                MessageBox.Show("Product saved.");
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Failed to save/update product.\n" + ex.Message);
             }
         }
+
+        private void SaveEditedProduct(string name, Category selectedCategory, decimal price)
+        {
+            var existingProduct = _productRepository.GetByName(name);
+            if (existingProduct != null && existingProduct.Id != _selectedManagementProduct!.Id)
+            {
+                MessageBox.Show(existingProduct.IsActive
+                    ? $"A product named '{name}' already exists."
+                    : $"A product named '{name}' already exists but is deactivated. Select it and click Reactivate Selected Product instead of creating a new one.");
+                return;
+            }
+
+            string? mainItem = null;
+            string unit = "";
+            decimal used = 0;
+
+            if (TrackStockCheckBox.IsChecked == true)
+            {
+                if (!TryReadTrackedSettings(name, out string trackedMainItem, out unit, out used))
+                    return;
+
+                mainItem = trackedMainItem;
+            }
+
+            var updatedProduct = new Product
+            {
+                Id = _selectedManagementProduct.Id,
+                Name = name,
+                CategoryId = selectedCategory.Id,
+                SellingPrice = price,
+                IsActive = _selectedManagementProduct.IsActive   // not changed by an edit: use Deactivate / Reactivate
+            };
+
+            _productSetupService.UpdateProduct(updatedProduct, mainItem, unit, used);
+
+            ClearProductForm();
+            LoadProducts();
+            LoadPosProducts();
+            LoadMainItemOptions();
+
+            MessageBox.Show("Product updated.");
+        }
+
+        // Reads Main item / Stock unit / Stock used per sale. A blank main item means "this product itself".
+        private bool TryReadTrackedSettings(string productName, out string mainItem, out string unit, out decimal used)
+        {
+            mainItem = string.IsNullOrWhiteSpace(MainItemComboBox.Text) ? productName : MainItemComboBox.Text.Trim();
+            unit = MainItemUnitComboBox.Text?.Trim() ?? "";
+            used = 0;
+
+            if (unit.Length == 0)
+            {
+                MessageBox.Show("Enter the stock unit (for example ml, bottle, unit).");
+                return false;
+            }
+
+            return TryReadPositiveNumber(StockUsedPerSaleTextBox, "Stock used per sale", out used);
+        }
+
+        private static bool TryReadPositiveNumber(TextBox box, string label, out decimal value)
+        {
+            if (!decimal.TryParse(box.Text?.Trim(), out value) || value <= 0)
+            {
+                MessageBox.Show($"{label}: enter a number greater than zero.");
+                return false;
+            }
+
+            return true;
+        }
+
+        // -----------------------------
+        // Product form: stock (main item) fields
+        // -----------------------------
+
+        private Dictionary<string, string> _mainItemUnits = new(StringComparer.OrdinalIgnoreCase);
+
+        // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
+        private void WireProductSetupControls()
+        {
+            MainItemUnitComboBox.ItemsSource = new[] { "unit", "ml", "bottle", "cigarette", "packet" };
+
+            CategoriesDataGrid.SelectionChanged += (_, _) =>
+            {
+                if (CategoriesDataGrid.SelectedItem is Category selected)
+                    LoadSelectedCategoryIntoForm(selected);
+            };
+            CategoriesDataGrid.AutoGeneratingColumn += (_, e) =>
+            {
+                if (e.PropertyName == nameof(Category.IsKitchenItem))
+                    e.Column.Header = "Kitchen Category";
+            };
+
+            TrackStockCheckBox.Checked += (_, _) => UpdateTrackStockEnabled();
+            TrackStockCheckBox.Unchecked += (_, _) => UpdateTrackStockEnabled();
+            MainItemComboBox.AddHandler(
+                System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+                new TextChangedEventHandler((_, _) => UpdateMainItemUnit()));
+
+            LoadMainItemOptions();
+            ResetStockSetupFields();
+        }
+
+        private void ResetStockSetupFields()
+        {
+            TrackStockCheckBox.IsChecked = false;
+            MainItemComboBox.Text = "";
+            MainItemUnitComboBox.Text = "unit";
+            StockUsedPerSaleTextBox.Text = "1";
+
+            UpdateTrackStockEnabled();
+        }
+
+        // The list of existing main items (for picking the one a sub product shares).
+        private void LoadMainItemOptions()
+        {
+            var items = _stockItemRepository.GetActive();
+
+            _mainItemUnits = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in items)
+                _mainItemUnits.TryAdd(item.Name, item.TrackingUnit);
+
+            string text = MainItemComboBox.Text;
+            MainItemComboBox.ItemsSource = null;
+            MainItemComboBox.ItemsSource = items.Select(i => i.Name).ToList();
+            MainItemComboBox.Text = text;
+        }
+
+        // An existing main item fixes the unit (shown, not editable); a new name lets you choose it.
+        private void UpdateMainItemUnit()
+        {
+            if (MainItemComboBox == null || MainItemUnitComboBox == null || TrackStockCheckBox == null)
+                return;
+
+            var typed = MainItemComboBox.Text?.Trim() ?? "";
+
+            if (_mainItemUnits.TryGetValue(typed, out var unit))
+            {
+                MainItemUnitComboBox.Text = unit;
+                MainItemUnitComboBox.IsEnabled = false;
+            }
+            else
+            {
+                MainItemUnitComboBox.IsEnabled = TrackStockCheckBox.IsChecked == true;
+            }
+        }
+
+        private void UpdateTrackStockEnabled()
+        {
+            if (MainItemComboBox == null)
+                return;
+
+            bool on = TrackStockCheckBox.IsChecked == true;
+
+            MainItemComboBox.IsEnabled = on;
+            StockUsedPerSaleTextBox.IsEnabled = on;
+
+            if (on && string.IsNullOrWhiteSpace(MainItemComboBox.Text))
+                MainItemComboBox.Text = ProductNameTextBox.Text?.Trim() ?? "";
+
+            UpdateMainItemUnit();
+        }
+
         private void DeactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1355,8 +1585,9 @@ namespace POSGardenia
 
                 ProductNameTextBox.Clear();
                 PriceTextBox.Clear();
-                KitchenItemCheckBox.IsChecked = false;
                 CategoryComboBox.SelectedIndex = -1;
+
+                ResetStockSetupFields();
 
                 SaveProductButton.Content = "Save Product";
             }
@@ -1380,7 +1611,6 @@ namespace POSGardenia
 
                 ProductNameTextBox.Text = selectedProduct.Name ?? "";
                 PriceTextBox.Text = selectedProduct.SellingPrice.ToString("F2");
-                KitchenItemCheckBox.IsChecked = selectedProduct.IsKitchenItem;
 
                 var categories = _categoryRepository.GetActiveCategories();
                 var matchingCategory = categories.FirstOrDefault(c => c.Name == selectedProduct.CategoryName);
@@ -1388,6 +1618,16 @@ namespace POSGardenia
                 CategoryComboBox.ItemsSource = null;
                 CategoryComboBox.ItemsSource = categories;
                 CategoryComboBox.SelectedItem = matchingCategory;
+
+                LoadMainItemOptions();
+
+                bool tracked = selectedProduct.StockItemId.HasValue;
+                TrackStockCheckBox.IsChecked = tracked;
+                MainItemComboBox.Text = tracked ? selectedProduct.MainItem : "";
+                StockUsedPerSaleTextBox.Text = tracked && selectedProduct.UnitsPerSale.HasValue
+                    ? selectedProduct.UnitsPerSale.Value.ToString("0.##")
+                    : "1";
+                UpdateTrackStockEnabled();
 
                 SaveProductButton.Content = "Update Product";
             }
