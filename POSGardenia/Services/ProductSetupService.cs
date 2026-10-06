@@ -9,7 +9,8 @@ namespace POSGardenia.Services
     // a 750 ml bottle and its 100 / 50 / 25 ml shots all draw from the one "Arrack" main item (in ml).
     // A product and its main item are saved in ONE transaction, so a half-saved product can never
     // be left behind. Quantities are added on Inventory > Daily Stock, not here.
-    // (The kitchen flag is not set here: a product takes it from its category.)
+    // (The kitchen flag is not set here: a product takes it from its category.
+    //  The bottle / pack size is set on Inventory > Daily Stock, not here, and saving a product never changes it.)
     public class ProductSetupService
     {
         private readonly StockService _stockService = new();

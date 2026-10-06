@@ -122,7 +122,7 @@ namespace POSGardenia.Data
             using var command = connection.CreateCommand();
             command.CommandText = @"
         SELECT p.Id, p.Name, p.CategoryId, p.SellingPrice, p.IsKitchenItem, p.IsActive,
-               p.StockItemId, p.UnitsPerSale, si.Name
+               p.StockItemId, p.UnitsPerSale, si.Name, c.ButtonColor
         FROM Products p
         INNER JOIN Categories c ON p.CategoryId = c.Id
         LEFT JOIN StockItems si ON si.Id = p.StockItemId
@@ -145,7 +145,8 @@ namespace POSGardenia.Data
                     IsActive = reader.GetInt32(5) == 1,
                     StockItemId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
                     UnitsPerSale = reader.IsDBNull(7) ? null : reader.GetDecimal(7),
-                    MainItemName = reader.IsDBNull(8) ? null : reader.GetString(8)
+                    MainItemName = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    CategoryButtonColor = reader.IsDBNull(9) ? null : reader.GetString(9)
                 });
             }
 

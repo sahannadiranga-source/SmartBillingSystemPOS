@@ -143,6 +143,12 @@ namespace POSGardenia.Services
             document.Blocks.Add(CreateParagraph($"CASH: {receipt.CashAmount:0.00}", 13, FontWeights.Normal, TextAlignment.Right));
             document.Blocks.Add(CreateParagraph($"CARD: {receipt.CardAmount:0.00}", 13, FontWeights.Normal, TextAlignment.Right));
 
+            if (receipt.ChangeAmount > 0)
+            {
+                document.Blocks.Add(CreateParagraph($"RECEIVED: {receipt.ReceivedAmount:0.00}", 13, FontWeights.Normal, TextAlignment.Right));
+                document.Blocks.Add(CreateParagraph($"CHANGE: {receipt.ChangeAmount:0.00}", 16, FontWeights.Bold, TextAlignment.Right));
+            }
+
             if (receipt.DueAmount > 0)
             {
                 document.Blocks.Add(CreateParagraph($"DUE: {receipt.DueAmount:0.00}", 16, FontWeights.Bold, TextAlignment.Right));

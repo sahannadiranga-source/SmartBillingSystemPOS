@@ -13,6 +13,13 @@ namespace POSGardenia.Models
         public decimal SoldQuantity { get; set; }        // positive number = amount sold
         public decimal AdjustedQuantity { get; set; }    // signed: adjustments and wastage
 
+        // Selling price of what was sold (bill price x quantity of every sale that day, less cancelled lines).
+        public decimal SalesValue { get; set; }
+
+        // Full bottle / pack of the main item (blank when not set).
+        public string? PackName { get; set; }
+        public decimal? PackSize { get; set; }
+
         public decimal ClosingQuantity =>
             OpeningQuantity + ReceivedQuantity - SoldQuantity + AdjustedQuantity;
 

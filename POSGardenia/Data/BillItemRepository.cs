@@ -156,7 +156,10 @@ namespace POSGardenia.Data
             return Convert.ToDecimal(result);
         }
 
-        public List<ItemSalesReport> GetTodayItemSalesReport()
+        // Item sales are grouped by STOCK item (a liquor's bottle and shots together, in ml).
+        // Products that are not tracked in stock keep their own row. A bill counts on the day of its first payment.
+        // dateFilter is a SQL condition on pay.FirstPaidAt.
+        private List<ItemSalesReport> QueryItemSales(string dateFilter, Action<Microsoft.Data.Sqlite.SqliteCommand> addParameters)
         {
             var items = new List<ItemSalesReport>();
 
@@ -164,34 +167,51 @@ namespace POSGardenia.Data
             connection.Open();
 
             using var command = connection.CreateCommand();
-            command.CommandText = @"
-        SELECT 
-            p.Name,
-            IFNULL(SUM(bi.Quantity), 0) as QuantitySold,
-            IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
-        FROM BillItems bi
-        INNER JOIN Products p ON bi.ProductId = p.Id
-        INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
-        WHERE bi.Status = 'ACTIVE'
-          AND date(pay.FirstPaidAt) = date('now', 'localtime')
-        GROUP BY p.Name
-        ORDER BY TotalSales DESC;";
+            command.CommandText = $@"
+                SELECT
+                    CASE WHEN si.Id IS NOT NULL AND p.UnitsPerSale > 0 THEN si.Name ELSE p.Name END AS ItemName,
+                    CASE WHEN si.Id IS NOT NULL AND p.UnitsPerSale > 0 THEN si.TrackingUnit ELSE '' END AS Unit,
+                    IFNULL(SUM(CASE WHEN si.Id IS NOT NULL AND p.UnitsPerSale > 0
+                                    THEN bi.Quantity * p.UnitsPerSale
+                                    ELSE bi.Quantity END), 0) AS QuantitySold,
+                    IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) AS TotalSales,
+                    si.PackName,
+                    si.PackSize
+                FROM BillItems bi
+                INNER JOIN Products p ON bi.ProductId = p.Id
+                LEFT JOIN StockItems si ON si.Id = p.StockItemId AND si.IsDeleted = 0
+                INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
+                WHERE bi.Status = 'ACTIVE'
+                  AND {dateFilter}
+                GROUP BY CASE WHEN si.Id IS NOT NULL AND p.UnitsPerSale > 0 THEN 'S' || si.Id ELSE 'P' || p.Id END
+                ORDER BY TotalSales DESC;";
+
+            addParameters(command);
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
                 items.Add(new ItemSalesReport
                 {
-                    ProductName = reader.GetString(0),
-                    QuantitySold = reader.GetDecimal(1),
-                    TotalSales = reader.GetDecimal(2)
+                    Item = reader.GetString(0),
+                    Unit = reader.GetString(1),
+                    QuantitySold = reader.GetDecimal(2),
+                    TotalSales = reader.GetDecimal(3),
+                    PackName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    PackSize = reader.IsDBNull(5) ? null : reader.GetDecimal(5)
                 });
             }
 
             return items;
         }
 
-        public List<BillItemDisplay> GetPendingKitchenItemsByBillId(int billId)
+        public List<ItemSalesReport> GetTodayItemSalesReport()
+        {
+            return QueryItemSales("date(pay.FirstPaidAt) = date('now', 'localtime')", _ => { });
+        }
+
+        // Kitchen items of a bill (active lines only). pendingOnly = just the ones not yet sent to the kitchen.
+        public List<BillItemDisplay> GetPendingKitchenItemsByBillId(int billId, bool pendingOnly = true)
         {
             var items = new List<BillItemDisplay>();
 
@@ -213,10 +233,11 @@ namespace POSGardenia.Data
         WHERE bi.BillId = @billId
           AND bi.Status = 'ACTIVE'
           AND p.IsKitchenItem = 1
-          AND bi.IsKitchenPrinted = 0
+          AND (@pendingOnly = 0 OR bi.IsKitchenPrinted = 0)
         ORDER BY bi.Id;";
 
             command.Parameters.AddWithValue("@billId", billId);
+            command.Parameters.AddWithValue("@pendingOnly", pendingOnly ? 1 : 0);
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -236,114 +257,100 @@ namespace POSGardenia.Data
             return items;
         }
 
-        public void MarkKitchenItemsAsPrinted(int billId)
+        // True when this bill already sent kitchen items (so the next ticket is an add-on).
+        public bool HasSentKitchenItems(int billId)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-        UPDATE BillItems
-        SET IsKitchenPrinted = 1
-        WHERE BillId = @billId
-          AND Status = 'ACTIVE'
-          AND IsKitchenPrinted = 0
-          AND ProductId IN (
-              SELECT Id
-              FROM Products
-              WHERE IsKitchenItem = 1
-          );";
-
+        SELECT 1
+        FROM BillItems bi
+        INNER JOIN Products p ON bi.ProductId = p.Id
+        WHERE bi.BillId = @billId
+          AND bi.Status = 'ACTIVE'
+          AND p.IsKitchenItem = 1
+          AND bi.IsKitchenPrinted = 1
+        LIMIT 1;";
             command.Parameters.AddWithValue("@billId", billId);
-            command.ExecuteNonQuery();
+
+            return command.ExecuteScalar() != null;
         }
 
-
-        public void MarkSpecificKitchenItemsAsPrinted(int billId, List<int> productIds)
+        // The next kitchen ticket number: 1 for the first ticket of the day, then 2, 3 ...
+        // A number is only used up once its ticket is recorded as sent, so a failed print leaves no gap.
+        public int GetNextKotNumber()
         {
-            try
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT IFNULL(MAX(KotNo), 0) FROM BillItems WHERE date(KotSentAt) = date(@today);";
+            command.Parameters.AddWithValue("@today", DateTime.Now.ToString("yyyy-MM-dd"));
+
+            return Convert.ToInt32(command.ExecuteScalar()) + 1;
+        }
+
+        // The ticket numbers this bill's kitchen items were sent on (for a reprint).
+        public List<int> GetKotNumbersForBill(int billId)
+        {
+            var numbers = new List<int>();
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+        SELECT DISTINCT KotNo FROM BillItems
+        WHERE BillId = @billId AND Status = 'ACTIVE' AND KotNo IS NOT NULL
+        ORDER BY KotNo;";
+            command.Parameters.AddWithValue("@billId", billId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                numbers.Add(reader.GetInt32(0));
+
+            return numbers;
+        }
+
+        // Marks exactly these bill lines as sent to the kitchen on ticket kotNo (only ever called after the ticket printed).
+        public void MarkKitchenItemsSent(List<int> billItemIds, int kotNo)
+        {
+            if (billItemIds == null || billItemIds.Count == 0)
+                return;
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            string sentAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            foreach (int id in billItemIds)
             {
-                if (billId <= 0)
-                    throw new Exception("Invalid bill id.");
-
-                if (productIds == null || productIds.Count == 0)
-                    return;
-
-                using var connection = DatabaseHelper.GetConnection();
-                connection.Open();
-
-                var placeholders = new List<string>();
                 using var command = connection.CreateCommand();
-
-                command.Parameters.AddWithValue("@billId", billId);
-
-                for (int i = 0; i < productIds.Count; i++)
-                {
-                    string paramName = $"@p{i}";
-                    placeholders.Add(paramName);
-                    command.Parameters.AddWithValue(paramName, productIds[i]);
-                }
-
-                command.CommandText = $@"
-            UPDATE BillItems
-            SET IsKitchenPrinted = 1
-            WHERE BillId = @billId
-              AND Status = 'ACTIVE'
-              AND IsKitchenPrinted = 0
-              AND ProductId IN ({string.Join(",", placeholders)})
-              AND ProductId IN (
-                  SELECT Id
-                  FROM Products
-                  WHERE IsKitchenItem = 1
-              );";
-
+                command.Transaction = transaction;
+                command.CommandText = "UPDATE BillItems SET IsKitchenPrinted = 1, KotSentAt = @sentAt, KotNo = @kotNo WHERE Id = @id AND IsKitchenPrinted = 0;";
+                command.Parameters.AddWithValue("@id", id);
+                command.Parameters.AddWithValue("@kotNo", kotNo);
+                command.Parameters.AddWithValue("@sentAt", sentAt);
                 command.ExecuteNonQuery();
             }
-            catch (Exception ex)
-            {
-                throw new Exception("Failed to mark specific kitchen items as printed. " + ex.Message, ex);
-            }
+
+            transaction.Commit();
         }
 
         public List<ItemSalesReport> GetItemSalesReportByDateRange(string fromDate, string toDate)
         {
             try
             {
-                var items = new List<ItemSalesReport>();
-
-                using var connection = DatabaseHelper.GetConnection();
-                connection.Open();
-
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
-            SELECT 
-                p.Name,
-                IFNULL(SUM(bi.Quantity), 0) as QuantitySold,
-                IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
-            FROM BillItems bi
-            INNER JOIN Products p ON bi.ProductId = p.Id
-            INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
-            WHERE bi.Status = 'ACTIVE'
-              AND date(pay.FirstPaidAt) >= date(@fromDate)
-              AND date(pay.FirstPaidAt) <= date(@toDate)
-            GROUP BY p.Name
-            ORDER BY TotalSales DESC;";
-
-                command.Parameters.AddWithValue("@fromDate", fromDate);
-                command.Parameters.AddWithValue("@toDate", toDate);
-
-                using var reader = command.ExecuteReader();
-                while (reader.Read())
-                {
-                    items.Add(new ItemSalesReport
+                return QueryItemSales(
+                    "date(pay.FirstPaidAt) >= date(@fromDate) AND date(pay.FirstPaidAt) <= date(@toDate)",
+                    command =>
                     {
-                        ProductName = reader.GetString(0),
-                        QuantitySold = reader.GetDecimal(1),
-                        TotalSales = reader.GetDecimal(2)
+                        command.Parameters.AddWithValue("@fromDate", fromDate);
+                        command.Parameters.AddWithValue("@toDate", toDate);
                     });
-                }
-
-                return items;
             }
             catch (Exception ex)
             {
@@ -355,39 +362,9 @@ namespace POSGardenia.Data
         {
             try
             {
-                var items = new List<ItemSalesReport>();
-
-                using var connection = DatabaseHelper.GetConnection();
-                connection.Open();
-
-                using var command = connection.CreateCommand();
-                command.CommandText = @"
-            SELECT 
-                p.Name,
-                IFNULL(SUM(bi.Quantity), 0) as QuantitySold,
-                IFNULL(SUM(bi.UnitPrice * bi.Quantity), 0) as TotalSales
-            FROM BillItems bi
-            INNER JOIN Products p ON bi.ProductId = p.Id
-            INNER JOIN (SELECT BillId, MIN(PaidAt) AS FirstPaidAt FROM Payments GROUP BY BillId) pay ON bi.BillId = pay.BillId
-            WHERE bi.Status = 'ACTIVE'
-              AND date(pay.FirstPaidAt) = date(@reportDate)
-            GROUP BY p.Name
-            ORDER BY TotalSales DESC;";
-
-                command.Parameters.AddWithValue("@reportDate", reportDate);
-
-                using var reader = command.ExecuteReader();
-                while (reader.Read())
-                {
-                    items.Add(new ItemSalesReport
-                    {
-                        ProductName = reader.GetString(0),
-                        QuantitySold = reader.GetDecimal(1),
-                        TotalSales = reader.GetDecimal(2)
-                    });
-                }
-
-                return items;
+                return QueryItemSales(
+                    "date(pay.FirstPaidAt) = date(@reportDate)",
+                    command => command.Parameters.AddWithValue("@reportDate", reportDate));
             }
             catch (Exception ex)
             {

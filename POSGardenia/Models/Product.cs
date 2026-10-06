@@ -9,6 +9,9 @@ namespace POSGardenia.Models
         public bool IsKitchenItem { get; set; }
         public bool IsActive { get; set; }
 
+        // Button colour chosen on the product's category (blank = automatic); only filled for the POS list.
+        public string? CategoryButtonColor { get; set; }
+
         // Stock link: both null = untracked product (sales never touch stock).
         public int? StockItemId { get; set; }
         public decimal? UnitsPerSale { get; set; }

@@ -14,6 +14,10 @@ namespace POSGardenia.Models
         public decimal CashAmount { get; set; }
         public decimal CardAmount { get; set; }
         public decimal DueAmount { get; set; }
+
+        // Cash handed over and the change given back for the payment just made (0 = exact amount).
+        public decimal ReceivedAmount { get; set; }
+        public decimal ChangeAmount { get; set; }
         public List<ReceiptLine> Items { get; set; } = new();
     }
 }

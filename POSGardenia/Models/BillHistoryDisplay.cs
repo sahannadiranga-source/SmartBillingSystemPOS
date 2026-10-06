@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace POSGardenia.Models
 {
     public class BillHistoryDisplay
@@ -15,6 +17,7 @@ namespace POSGardenia.Models
         public decimal TotalAmount { get; set; }
         public decimal DueAmount { get; set; }
 
+        [Browsable(false)]   // repeats the columns already shown
         public string DisplayText => $"Bill No: {VisibleBillNumber} | {TableName} | {Status}";
     }
 }
