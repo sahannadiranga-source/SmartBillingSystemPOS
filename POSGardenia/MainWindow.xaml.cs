@@ -49,8 +49,12 @@ namespace POSGardenia
 
             WireProductSetupControls();
             WireInventoryControls();
+            WirePosPaymentControls();
 
             LoadAppSettings();
+            InitTouchSupport();
+            BackupWarningBanner.MouseLeftButtonUp += BackupWarningBanner_Tapped;
+            RefreshBackupBanner();
             LoadPrinters();
             StartAutoBackupTimer();
             StartDailyReportTimer();
@@ -108,13 +112,18 @@ namespace POSGardenia
             }
         }
 
+        // Shared rounded button look with pressed feedback (defined in MainWindow.xaml).
+        private ControlTemplate? TouchTemplate() => TryFindResource("TouchButtonTemplate") as ControlTemplate;
+
         private Button CreateCategoryButton(string text, int? categoryId)
         {
             var button = new Button
             {
                 Content = text,
-                Height = 48,
-                Margin = new Thickness(0, 0, 0, 10),
+                Height = 60,
+                Margin = new Thickness(0, 0, 0, 12),
+                FontSize = 17,
+                Template = TouchTemplate(),
                 Background = categoryId == null
                     ? new SolidColorBrush(Color.FromRgb(31, 111, 235))
                     : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
@@ -162,17 +171,17 @@ namespace POSGardenia
 
             foreach (var product in products)
             {
+                var (buttonColor, textColor) = PosColors.Resolve(product.CategoryButtonColor, product.IsKitchenItem);
                 var button = new Button
                 {
-                    Width = 150,
-                    Height = 90,
-                    Margin = new Thickness(0, 0, 12, 12),
+                    Width = 180,
+                    Height = 110,
+                    Margin = new Thickness(0, 0, 14, 14),
                     BorderThickness = new Thickness(0),
+                    Template = TouchTemplate(),
                     Cursor = System.Windows.Input.Cursors.Hand,
-                    Background = product.IsKitchenItem
-                        ? new SolidColorBrush(Color.FromRgb(14, 165, 164))
-                        : new SolidColorBrush(Color.FromRgb(31, 111, 235)),
-                    Foreground = Brushes.White,
+                    Background = new SolidColorBrush(buttonColor),
+                    Foreground = new SolidColorBrush(textColor),
                     Content = new StackPanel
                     {
                         Children =
@@ -180,6 +189,7 @@ namespace POSGardenia
                             new TextBlock
                             {
                                 Text = product.Name,
+                                FontSize = 16,
                                 FontWeight = FontWeights.Bold,
                                 TextAlignment = TextAlignment.Center,
                                 TextWrapping = TextWrapping.Wrap
@@ -187,6 +197,7 @@ namespace POSGardenia
                             new TextBlock
                             {
                                 Text = product.SellingPrice.ToString("F2"),
+                                FontSize = 15,
                                 Margin = new Thickness(0, 6, 0, 0),
                                 TextAlignment = TextAlignment.Center
                             }
@@ -389,6 +400,7 @@ namespace POSGardenia
 
                 int billId = _billRepository.Create(bill);
                 SaveCartItemsToBill(billId);
+                SendKitchenTicket(billId, selectedTable.TableName);
                 string visibleBillNo = GetVisibleBillNumber(billId);
 
                 MessageBox.Show($"Table bill created successfully.\nTable: {selectedTable.TableName}\nBill No: {visibleBillNo}");
@@ -422,6 +434,7 @@ namespace POSGardenia
                     tableName = GetBillTableName(targetBillId);
 
                     SaveCartItemsToBill(targetBillId);
+                    SendKitchenTicket(targetBillId, tableName);
                     string visibleBillNo = GetVisibleBillNumber(targetBillId);
                     MessageBox.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
                 }
@@ -437,6 +450,7 @@ namespace POSGardenia
                     tableName = string.IsNullOrWhiteSpace(selectedBill.TableName) ? "Quick Sale" : selectedBill.TableName;
 
                     SaveCartItemsToBill(targetBillId);
+                    SendKitchenTicket(targetBillId, tableName);
                     string visibleBillNo = selectedBill.VisibleBillNumber;
                     MessageBox.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
                 }
@@ -523,6 +537,50 @@ namespace POSGardenia
             }
         }
 
+        // Amount due for the current cart (what is still to be paid on it).
+        private decimal GetPosDue()
+        {
+            decimal cartTotal = _cart?.Sum(x => x?.LineTotal ?? 0) ?? 0;
+            decimal alreadyPaid = _currentTargetBillId.HasValue
+                ? _paymentRepository.GetPaidTotalForBill(_currentTargetBillId.Value)
+                : 0;
+            return Math.Max(0, cartTotal - alreadyPaid);
+        }
+
+        // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
+        private void WirePosPaymentControls()
+        {
+            PosPayAmountTextBox.TextChanged += (_, _) => UpdatePosChange();
+            PosQuickPaymentMethodComboBox.SelectionChanged += (_, _) => UpdatePosChange();
+        }
+
+        // Shows the change to give back while the cashier types the amount received.
+        private void UpdatePosChange()
+        {
+            try
+            {
+                bool cash = PosQuickPaymentMethodComboBox.SelectedItem is string method
+                    && string.Equals(method, "CASH", StringComparison.OrdinalIgnoreCase);
+
+                if (cash && decimal.TryParse(PosPayAmountTextBox.Text?.Trim(), out decimal received) && _cart != null && _cart.Count > 0)
+                {
+                    decimal change = received - GetPosDue();
+                    if (change > 0.005m)
+                    {
+                        PosChangeTextBlock.Text = $"Change: {change:F2}";
+                        PosChangeBorder.Visibility = Visibility.Visible;
+                        return;
+                    }
+                }
+
+                PosChangeBorder.Visibility = Visibility.Collapsed;
+            }
+            catch
+            {
+                PosChangeBorder.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private void PayNowFromPos_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -545,17 +603,24 @@ namespace POSGardenia
                     : 0;
                 decimal dueBefore = Math.Max(0, cartTotal - alreadyPaid);
 
-                if (!decimal.TryParse(PosPayAmountTextBox.Text?.Trim(), out decimal amount) || amount <= 0)
+                // The box holds what the customer handed over. Only up to the amount due is recorded as
+                // the payment (so sales and reports stay exact); the rest is given back as change.
+                if (!decimal.TryParse(PosPayAmountTextBox.Text?.Trim(), out decimal received) || received <= 0)
                 {
-                    MessageBox.Show("Enter a valid amount to pay.");
+                    MessageBox.Show("Enter the amount received.");
                     return;
                 }
 
-                if (amount > dueBefore + 0.01m)
+                received = Math.Round(received, 2);
+
+                if (received > dueBefore + 0.01m && !string.Equals(paymentMethod, "CASH", StringComparison.OrdinalIgnoreCase))
                 {
-                    MessageBox.Show($"Amount ({amount:F2}) is more than the amount due ({dueBefore:F2}).");
+                    MessageBox.Show($"A {paymentMethod} payment cannot be more than the amount due ({dueBefore:F2}).");
                     return;
                 }
+
+                decimal amount = Math.Min(received, dueBefore);
+                decimal change = received - amount;
 
                 int billId;
                 string saleTypeText;
@@ -603,15 +668,23 @@ namespace POSGardenia
                     tableName = "Quick Sale";
                 }
 
+                // Kitchen first: food should start while the receipt is still printing.
+                SendKitchenTicket(billId, tableName);
+
                 string visibleBillNo = GetVisibleBillNumber(billId);
                 string dueText = due > 0
                     ? $"\nDue balance: {due:F2} (bill stays open)"
                     : "\nBill fully paid.";
+                string changeText = change > 0
+                    ? $"\nReceived: {received:F2}\n\nCHANGE: {change:F2}"
+                    : "";
 
                 MessageBox.Show(
-  $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nPaid now: {amount:F2} ({paymentMethod}){dueText}");
+  $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nPaid now: {amount:F2} ({paymentMethod}){dueText}{changeText}");
 
                 var receipt = BuildReceiptData(billId, saleTypeText, tableName);
+                receipt.ReceivedAmount = received;
+                receipt.ChangeAmount = change;
                 _receiptPrintService.PrintReceipt(receipt, _appSettings.ReceiptPrinterName);
 
                 _cart.Clear();
@@ -668,6 +741,7 @@ namespace POSGardenia
                 }
 
                 bool kitchen = CategoryKitchenCheckBox.IsChecked == true;
+                string? buttonColor = SelectedCategoryColor();
                 var existing = _categoryRepository.GetByName(name);
 
                 if (_selectedManagementCategory == null)
@@ -680,7 +754,7 @@ namespace POSGardenia
                         return;
                     }
 
-                    _categoryRepository.Add(name, kitchen);
+                    _categoryRepository.Add(name, kitchen, buttonColor);
                     MessageBox.Show("Category saved.");
                 }
                 else
@@ -691,7 +765,7 @@ namespace POSGardenia
                         return;
                     }
 
-                    _categoryRepository.Update(_selectedManagementCategory.Id, name, kitchen);
+                    _categoryRepository.Update(_selectedManagementCategory.Id, name, kitchen, buttonColor);
                     MessageBox.Show("Category updated.");
                 }
 
@@ -713,7 +787,21 @@ namespace POSGardenia
 
             CategoryNameTextBox.Text = selected.Name;
             CategoryKitchenCheckBox.IsChecked = selected.IsKitchenItem;
+            CategoryColorComboBox.SelectedItem = PosColors.Normalize(selected.ButtonColor) ?? PosColors.Automatic;
             SaveCategoryButton.Content = "Update Category";
+        }
+
+        // null = Automatic
+        private string? SelectedCategoryColor()
+        {
+            return CategoryColorComboBox.SelectedItem is string name && name != PosColors.Automatic ? name : null;
+        }
+
+        // The little swatch beside the colour box shows what the POS buttons will look like.
+        private void UpdateCategoryColorSwatch()
+        {
+            var (background, _) = PosColors.Resolve(SelectedCategoryColor(), CategoryKitchenCheckBox.IsChecked == true);
+            CategoryColorSwatch.Background = new SolidColorBrush(background);
         }
 
         private void ClearCategoryForm()
@@ -722,6 +810,7 @@ namespace POSGardenia
 
             CategoryNameTextBox.Clear();
             CategoryKitchenCheckBox.IsChecked = false;
+            CategoryColorComboBox.SelectedItem = PosColors.Automatic;
             SaveCategoryButton.Content = "Save Category";
             CategoriesDataGrid.SelectedItem = null;
         }
@@ -946,12 +1035,12 @@ namespace POSGardenia
         // Product form: stock (main item) fields
         // -----------------------------
 
-        private Dictionary<string, string> _mainItemUnits = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, StockItem> _mainItems = new(StringComparer.OrdinalIgnoreCase);
 
         // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
         private void WireProductSetupControls()
         {
-            MainItemUnitComboBox.ItemsSource = new[] { "unit", "ml", "bottle", "cigarette", "packet" };
+            MainItemUnitComboBox.ItemsSource = new[] { "ml", "bottle", "unit" };
 
             CategoriesDataGrid.SelectionChanged += (_, _) =>
             {
@@ -962,7 +1051,16 @@ namespace POSGardenia
             {
                 if (e.PropertyName == nameof(Category.IsKitchenItem))
                     e.Column.Header = "Kitchen Category";
+                else if (e.PropertyName == nameof(Category.ButtonColor))
+                    e.Column.Header = "POS Button Colour";
             };
+
+            CategoryColorComboBox.ItemsSource = PosColors.Choices;
+            CategoryColorComboBox.SelectedItem = PosColors.Automatic;
+            CategoryColorComboBox.SelectionChanged += (_, _) => UpdateCategoryColorSwatch();
+            CategoryKitchenCheckBox.Checked += (_, _) => UpdateCategoryColorSwatch();
+            CategoryKitchenCheckBox.Unchecked += (_, _) => UpdateCategoryColorSwatch();
+            UpdateCategoryColorSwatch();
 
             TrackStockCheckBox.Checked += (_, _) => UpdateTrackStockEnabled();
             TrackStockCheckBox.Unchecked += (_, _) => UpdateTrackStockEnabled();
@@ -989,9 +1087,9 @@ namespace POSGardenia
         {
             var items = _stockItemRepository.GetActive();
 
-            _mainItemUnits = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _mainItems = new Dictionary<string, StockItem>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in items)
-                _mainItemUnits.TryAdd(item.Name, item.TrackingUnit);
+                _mainItems.TryAdd(item.Name, item);
 
             string text = MainItemComboBox.Text;
             MainItemComboBox.ItemsSource = null;
@@ -1007,10 +1105,11 @@ namespace POSGardenia
 
             var typed = MainItemComboBox.Text?.Trim() ?? "";
 
-            if (_mainItemUnits.TryGetValue(typed, out var unit))
+            if (_mainItems.TryGetValue(typed, out var existing))
             {
-                MainItemUnitComboBox.Text = unit;
+                MainItemUnitComboBox.Text = existing.TrackingUnit;
                 MainItemUnitComboBox.IsEnabled = false;
+
             }
             else
             {
@@ -1269,95 +1368,6 @@ namespace POSGardenia
             }
         }
 
-        private string BuildKotPreviewText(int billId)
-        {
-            try
-            {
-                var pendingItems = _billItemRepository.GetPendingKitchenItemsByBillId(billId);
-
-                if (pendingItems == null || pendingItems.Count == 0)
-                    return "No kitchen items to send.";
-
-                string tableText = GetBillTableName(billId);
-
-                var lines = new List<string>
-        {
-            "KITCHEN ORDER TICKET",
-            $"Bill ID: {billId}",
-            $"Table: {tableText}",
-            $"Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
-            "--------------------------------"
-        };
-
-                foreach (var item in pendingItems)
-                {
-                    if (item == null)
-                        continue;
-
-                    lines.Add($"{item.ProductName} x {item.Quantity}");
-                }
-
-                lines.Add("--------------------------------");
-
-                return string.Join(Environment.NewLine, lines);
-            }
-            catch (Exception ex)
-            {
-                return "Failed to build KOT preview.\n" + ex.Message;
-            }
-        }
-        //private void SendKitchenItems_Click(object sender, RoutedEventArgs e)
-        //{
-        //    try
-        //    {
-        //        if (!ValidateCart())
-        //            return;
-
-        //        if (!_currentTargetBillId.HasValue || _currentTargetBillId.Value <= 0)
-        //        {
-        //            MessageBox.Show("Open the table bill first, then send kitchen items.");
-        //            return;
-        //        }
-
-        //        bool hasNewKitchenItems = _cart.Any(x => x != null && !x.IsExistingItem && x.IsKitchenItem);
-        //        if (!hasNewKitchenItems)
-        //        {
-        //            MessageBox.Show("There are no new kitchen items to send.");
-        //            return;
-        //        }
-
-        //        int billId = _currentTargetBillId.Value;
-
-        //        var savedProductIds = SaveOnlyNewCartItemsToBillAndReturnProductIds(billId);
-
-        //        if (savedProductIds == null || savedProductIds.Count == 0)
-        //        {
-        //            MessageBox.Show("No new items were saved.");
-        //            return;
-        //        }
-
-        //        string kotText = BuildKotPreviewText(billId);
-
-        //        if (string.IsNullOrWhiteSpace(kotText) || kotText == "No kitchen items to send.")
-        //        {
-        //            MessageBox.Show(kotText ?? "No kitchen items to send.");
-        //            ReloadCurrentBillIntoCartIfAny();
-        //            RefreshAllOpenBillViews();
-        //            return;
-        //        }
-
-        //        _billItemRepository.MarkSpecificKitchenItemsAsPrinted(billId, savedProductIds);
-
-        //        MessageBox.Show(kotText, "KOT Preview");
-
-        //        LoadBillIntoCart(billId);
-        //        RefreshAllOpenBillViews();
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        MessageBox.Show("Failed to send kitchen items.\n" + ex.Message);
-        //    }
-        //}
         private string GetBillTableDisplayText(int billId)
         {
             try
@@ -1517,7 +1527,10 @@ namespace POSGardenia
                 decimal sales = _paymentRepository.GetSalesTotalBySingleDate(reportDate);
                 decimal net = sales - totalExpenses;
 
-                NetSalesTextBlock.Text = $"Net: {net:F2}";
+                NetSalesTextBlock.Text = net.ToString("F2");
+                NetSalesTextBlock.Foreground = net < 0
+                    ? new SolidColorBrush(Color.FromRgb(0xB9, 0x1C, 0x1C))
+                    : new SolidColorBrush(Color.FromRgb(0x16, 0x65, 0x34));
             }
             catch (Exception ex)
             {
@@ -1664,7 +1677,7 @@ namespace POSGardenia
                     OpenBillsCardsPanel.Children.Add(new TextBlock
                     {
                         Text = "No open bills.",
-                        FontSize = 16,
+                        FontSize = 18,
                         Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
                         Margin = new Thickness(8)
                     });
@@ -1684,8 +1697,8 @@ namespace POSGardenia
                         Background = (_selectedTablesBill != null && _selectedTablesBill.Id == bill.Id)
                             ? new SolidColorBrush(Color.FromRgb(219, 234, 254))
                             : Brushes.White,
-                        Padding = new Thickness(12),
-                        Margin = new Thickness(0, 0, 0, 10),
+                        Padding = new Thickness(18),
+                        Margin = new Thickness(0, 0, 0, 14),
                         Cursor = System.Windows.Input.Cursors.Hand
                     };
 
@@ -1694,7 +1707,7 @@ namespace POSGardenia
                     stack.Children.Add(new TextBlock
                     {
                         Text = bill.CardTitle,
-                        FontSize = 20,
+                        FontSize = 22,
                         FontWeight = FontWeights.Bold,
                         Foreground = new SolidColorBrush(Color.FromRgb(15, 23, 42))
                     });
@@ -1702,7 +1715,7 @@ namespace POSGardenia
                     stack.Children.Add(new TextBlock
                     {
                         Text = bill.CardSubTitle,
-                        FontSize = 14,
+                        FontSize = 15,
                         Margin = new Thickness(0, 4, 0, 0),
                         Foreground = new SolidColorBrush(Color.FromRgb(71, 85, 105))
                     });
@@ -1710,7 +1723,7 @@ namespace POSGardenia
                     stack.Children.Add(new TextBlock
                     {
                         Text = $"Opened: {bill.CreatedAt}",
-                        FontSize = 13,
+                        FontSize = 14,
                         Margin = new Thickness(0, 8, 0, 0),
                         Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139))
                     });
@@ -1718,7 +1731,7 @@ namespace POSGardenia
                     stack.Children.Add(new TextBlock
                     {
                         Text = $"Status: {bill.Status}",
-                        FontSize = 13,
+                        FontSize = 14,
                         Margin = new Thickness(0, 2, 0, 0),
                         Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139))
                     });
@@ -1726,7 +1739,7 @@ namespace POSGardenia
                     stack.Children.Add(new TextBlock
                     {
                         Text = $"Total: {bill.TotalAmount:F2}",
-                        FontSize = 16,
+                        FontSize = 18,
                         FontWeight = FontWeights.Bold,
                         Margin = new Thickness(0, 10, 0, 0),
                         Foreground = new SolidColorBrush(Color.FromRgb(15, 23, 42))
@@ -1737,7 +1750,7 @@ namespace POSGardenia
                         stack.Children.Add(new TextBlock
                         {
                             Text = $"Paid: {bill.PaidAmount:F2}    Due: {bill.DueAmount:F2}",
-                            FontSize = 14,
+                            FontSize = 15,
                             FontWeight = FontWeights.SemiBold,
                             Margin = new Thickness(0, 4, 0, 0),
                             Foreground = new SolidColorBrush(Color.FromRgb(194, 65, 12))
@@ -1746,7 +1759,7 @@ namespace POSGardenia
                         stack.Children.Add(new TextBlock
                         {
                             Text = "PARTIALLY PAID",
-                            FontSize = 12,
+                            FontSize = 13,
                             FontWeight = FontWeights.Bold,
                             Margin = new Thickness(0, 2, 0, 0),
                             Foreground = new SolidColorBrush(Color.FromRgb(194, 65, 12))
@@ -1817,52 +1830,6 @@ namespace POSGardenia
             }
         }
 
-
-        private List<int> SaveOnlyNewCartItemsToBillAndReturnProductIds(int billId)
-        {
-            try
-            {
-                if (billId <= 0)
-                    throw new Exception("Invalid bill id.");
-
-                if (_cart == null || _cart.Count == 0)
-                    throw new Exception("Cart is empty.");
-
-                var newLines = _cart.Where(x => x != null && !x.IsExistingItem).ToList();
-
-                if (newLines.Count == 0)
-                    return new List<int>();
-
-                var savedProductIds = new List<int>();
-
-                foreach (var line in newLines)
-                {
-                    if (line == null)
-                        continue;
-
-                    if (line.ProductId <= 0 || line.Quantity <= 0)
-                        continue;
-
-                    _billItemRepository.Add(new BillItem
-                    {
-                        BillId = billId,
-                        ProductId = line.ProductId,
-                        UnitPrice = line.UnitPrice,
-                        Quantity = line.Quantity,
-                        Status = "ACTIVE",
-                        IsKitchenPrinted = false
-                    });
-
-                    savedProductIds.Add(line.ProductId);
-                }
-
-                return savedProductIds;
-            }
-            catch (Exception ex)
-            {
-                throw new Exception("Failed to save new cart items. " + ex.Message, ex);
-            }
-        }
 
         private void ReloadCurrentBillIntoCartIfAny()
         {
@@ -1998,6 +1965,7 @@ namespace POSGardenia
             try
             {
                 _appSettings = _settingsService.Load();
+                KeyboardEnabledCheckBox.IsChecked = _appSettings.UseOnScreenKeyboard;
 
                 BackupFolderTextBox.Text = _appSettings.BackupFolderPath ?? "";
                 BackupIntervalTextBox.Text = _appSettings.BackupIntervalMinutes.ToString();
@@ -2041,6 +2009,13 @@ namespace POSGardenia
                 ReceiptPrinterComboBox.ItemsSource = null;
                 ReceiptPrinterComboBox.ItemsSource = printerNames;
 
+                KitchenPrinterComboBox.ItemsSource = null;
+                KitchenPrinterComboBox.ItemsSource = new[] { SameAsReceiptPrinter }.Concat(printerNames).ToList();
+                KitchenPrinterComboBox.SelectedItem =
+                    !string.IsNullOrWhiteSpace(_appSettings.KitchenPrinterName) && printerNames.Contains(_appSettings.KitchenPrinterName)
+                        ? _appSettings.KitchenPrinterName
+                        : SameAsReceiptPrinter;
+
                 if (!string.IsNullOrWhiteSpace(_appSettings.ReceiptPrinterName) &&
                     printerNames.Contains(_appSettings.ReceiptPrinterName))
                 {
@@ -2061,11 +2036,19 @@ namespace POSGardenia
         {
             try
             {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "Choose the folder for the daily report files",
+                    InitialDirectory = System.IO.Directory.Exists(DailyReportFolderTextBox.Text)
+                        ? DailyReportFolderTextBox.Text
+                        : ""
+                };
 
+                if (dialog.ShowDialog(this) != true)
+                    return;
 
-                
-                    MessageBox.Show("Select Google Drive synced daily report folder");
-                
+                DailyReportFolderTextBox.Text = dialog.FolderName;
+                DailyReportStatusTextBlock.Text = "Folder chosen. Click Save Report Settings to use it.";
             }
             catch (Exception ex)
             {
@@ -2106,6 +2089,53 @@ namespace POSGardenia
             catch (Exception ex)
             {
                 MessageBox.Show("Failed to save daily report settings.\n" + ex.Message);
+            }
+        }
+
+        // Reports page: the PDF for the selected date. Goes to the daily report folder when one is set,
+        // otherwise asks where to save it. It is opened afterwards so it can be checked or printed.
+        private void SaveReportPdf_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                DateTime date = ReportDatePicker.SelectedDate ?? DateTime.Today;
+                string filePath;
+
+                string folder = _appSettings?.DailyReportFolderPath ?? "";
+                if (!string.IsNullOrWhiteSpace(folder))
+                {
+                    filePath = _dailyReportService.GenerateDailyReport(folder, date);
+                }
+                else
+                {
+                    var dialog = new Microsoft.Win32.SaveFileDialog
+                    {
+                        Title = "Save daily report",
+                        Filter = "PDF file (*.pdf)|*.pdf",
+                        FileName = DailyReportService.DefaultFileName(date)
+                    };
+
+                    if (dialog.ShowDialog() != true)
+                        return;
+
+                    filePath = dialog.FileName;
+                    _dailyReportService.SaveReport(filePath, date);
+                }
+
+                DailyReportStatusTextBlock.Text = $"Daily report saved: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{filePath}";
+
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+                }
+                catch
+                {
+                    MessageBox.Show("The PDF was saved here:\n" + filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not save the PDF.\n" + ex.Message);
             }
         }
 
@@ -2278,7 +2308,23 @@ namespace POSGardenia
 
         private void ChooseBackupFolder_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show("Copy your Google Drive backup folder path and paste it into the Backup Folder box.");
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Choose the backup folder on your external drive",
+                InitialDirectory = System.IO.Directory.Exists(BackupFolderTextBox.Text)
+                    ? BackupFolderTextBox.Text
+                    : ""
+            };
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            BackupFolderTextBox.Text = dialog.FolderName;
+
+            var risk = BackupService.DescribeFolderRisk(dialog.FolderName, DatabaseHelper.GetDatabasePath());
+            BackupStatusTextBlock.Text = risk == null
+                ? "Folder chosen. Click Save Backup Settings to use it."
+                : "Folder chosen. Note: " + risk;
         }
 
         private void SaveBackupSettings_Click(object sender, RoutedEventArgs e)
@@ -2307,8 +2353,12 @@ namespace POSGardenia
                 BackupStatusTextBlock.Text = $"Backup saved. Folder: {folder} | Interval: {minutes} minutes";
 
                 StartAutoBackupTimer();
+                RefreshBackupBanner();
 
-                MessageBox.Show("Backup settings saved.");
+                var risk = BackupService.DescribeFolderRisk(folder, DatabaseHelper.GetDatabasePath());
+                MessageBox.Show(risk == null
+                    ? "Backup settings saved."
+                    : "Backup settings saved.\n\nNote: " + risk);
             }
             catch (Exception ex)
             {
@@ -2318,7 +2368,7 @@ namespace POSGardenia
 
         private void BackupNow_Click(object sender, RoutedEventArgs e)
         {
-            RunBackup(showMessage: true);
+            RunBackup(showMessage: true, force: true);
         }
 
         private void StartAutoBackupTimer()
@@ -2330,19 +2380,13 @@ namespace POSGardenia
                 if (_appSettings == null)
                     return;
 
-                if (string.IsNullOrWhiteSpace(_appSettings.BackupFolderPath))
-                {
-                    BackupStatusTextBlock.Text = "Auto backup not started. Backup folder not selected.";
-                    return;
-                }
-
                 int minutes = _appSettings.BackupIntervalMinutes <= 0
                     ? 15
                     : _appSettings.BackupIntervalMinutes;
 
                 _backupTimer = new DispatcherTimer();
                 _backupTimer.Interval = TimeSpan.FromMinutes(minutes);
-                _backupTimer.Tick += (s, e) => RunBackup(showMessage: false);
+                _backupTimer.Tick += (s, e) => RunBackup(showMessage: false, force: true);
                 _backupTimer.Start();
 
                 BackupStatusTextBlock.Text = $"Auto backup running every {minutes} minutes.";
@@ -2353,31 +2397,57 @@ namespace POSGardenia
             }
         }
 
-        private void RunBackup(bool showMessage)
+        private DateTime _lastBackupAt = DateTime.MinValue;
+        private string? _lastBackupError;
+
+        // Copies made after a sale / cancel / void are skipped if one was made in the last minute
+        // (the 15-minute timer and "Backup Now" always run). Keeps the number of copies sensible.
+        private void RunBackup(bool showMessage, bool force = false)
         {
             try
             {
-                if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.BackupFolderPath))
-                {
-                    if (showMessage)
-                        MessageBox.Show("Backup folder is not selected.");
+                if (!force && (DateTime.Now - _lastBackupAt) < TimeSpan.FromSeconds(60))
                     return;
-                }
 
-                string backupPath = _backupService.BackupNow(_appSettings.BackupFolderPath);
+                var result = _backupService.BackupNow(_appSettings?.BackupFolderPath);
 
-                BackupStatusTextBlock.Text = $"Last backup: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{backupPath}";
+                _lastBackupAt = DateTime.Now;
+                _lastBackupError = null;
+
+                BackupStatusTextBlock.Text = $"Last backup: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{result.Path}"
+                    + (result.Warning == null ? "" : "\n" + result.Warning);
+                RefreshBackupBanner();
 
                 if (showMessage)
-                    MessageBox.Show("Backup completed successfully.");
+                    MessageBox.Show(result.Warning == null
+                        ? "Backup completed successfully."
+                        : "Backup completed.\n\n" + result.Warning);
             }
             catch (Exception ex)
             {
+                _lastBackupError = ex.Message;
                 BackupStatusTextBlock.Text = "Backup failed: " + ex.Message;
+                RefreshBackupBanner();
 
                 if (showMessage)
                     MessageBox.Show("Backup failed.\n" + ex.Message);
             }
+        }
+
+        // The orange bar at the top: visible whenever backups are not properly protected.
+        private void RefreshBackupBanner()
+        {
+            string? message = _lastBackupError != null
+                ? "Backup FAILED: " + _lastBackupError
+                : BackupService.DescribeFolderRisk(_appSettings?.BackupFolderPath, DatabaseHelper.GetDatabasePath());
+
+            BackupWarningTextBlock.Text = message == null ? "" : "⚠ " + message + "   (tap to open Settings)";
+            BackupWarningBanner.Visibility = message == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void BackupWarningBanner_Tapped(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            MainTabControl.SelectedItem = SettingsTabItem;
         }
 
         public void Delete(int id)

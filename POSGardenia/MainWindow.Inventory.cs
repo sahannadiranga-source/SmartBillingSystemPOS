@@ -32,6 +32,8 @@ namespace POSGardenia
                 grid.AutoGeneratingColumn += StockGrid_AutoGeneratingColumn;
 
             ProductsDataGrid.AutoGeneratingColumn += ProductsGrid_AutoGeneratingColumn;
+            BillHistoryDataGrid.AutoGeneratingColumn += HideNonBrowsableColumns;
+            ItemSalesReportDataGrid.AutoGeneratingColumn += ItemSalesGrid_AutoGeneratingColumn;
 
             DailyStockDataGrid.LoadingRow += DailyStockDataGrid_LoadingRow;
             DailyStockDataGrid.SelectionChanged += (_, _) =>
@@ -41,7 +43,7 @@ namespace POSGardenia
             };
 
             DailyStockDatePicker.SelectedDateChanged += (_, _) => RefreshDailyStock();
-            StockEntryItemComboBox.SelectionChanged += (_, _) => LoadEntryUnitOptions();
+            StockEntryItemComboBox.SelectionChanged += (_, _) => OnEntryItemChanged();
             StockEntryTypeComboBox.SelectionChanged += (_, _) => UpdateEntryHint();
 
             MainTabControl.SelectionChanged += (s, e) =>
@@ -66,6 +68,29 @@ namespace POSGardenia
                 e.Column.Header = "Stock Used Per Sale";
         }
 
+        private static void ItemSalesGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
+        {
+            HideNonBrowsableColumns(sender, e);
+            if (e.Cancel)
+                return;
+
+            e.Column.Header = e.PropertyName switch
+            {
+                nameof(ItemSalesReport.QuantitySold) => "Sold",
+                nameof(ItemSalesReport.InPacks) => "Bottles / Packs",
+                nameof(ItemSalesReport.TotalSales) => "Total Sales",
+                _ => e.Column.Header
+            };
+
+            if (e.Column is DataGridTextColumn textColumn && textColumn.Binding is Binding binding)
+            {
+                if (e.PropertyName == nameof(ItemSalesReport.QuantitySold))
+                    binding.StringFormat = "#,0.##";
+                else if (e.PropertyName == nameof(ItemSalesReport.TotalSales))
+                    binding.StringFormat = "#,0.00";
+            }
+        }
+
         // The DataGrid does not honour [Browsable(false)] by itself, so hidden columns are dropped here.
         private static void HideNonBrowsableColumns(object? sender, DataGridAutoGeneratingColumnEventArgs e)
         {
@@ -79,13 +104,21 @@ namespace POSGardenia
             if (e.Cancel)
                 return;
 
-            e.Column.Header = Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ");
+            bool dailySheet = sender is DataGrid grid && grid.Name == nameof(DailyStockDataGrid);
+
+            e.Column.Header = e.PropertyName switch
+            {
+                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left (Bottles / Packs)" : "Bottles / Packs",
+                nameof(DailyStockDisplay.SoldInPacks) => "Sold (Bottles / Packs)",
+                nameof(DailyStockDisplay.SalesValue) => "Sales Value",
+                _ => Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ")
+            };
 
             if (e.Column is DataGridTextColumn textColumn &&
                 textColumn.Binding is Binding binding &&
                 (e.PropertyType == typeof(decimal) || e.PropertyType == typeof(decimal?)))
             {
-                binding.StringFormat = "0.##";
+                binding.StringFormat = e.PropertyName == nameof(DailyStockDisplay.SalesValue) ? "#,0.00" : "0.##";
             }
         }
 
@@ -142,6 +175,9 @@ namespace POSGardenia
                         Sold = r.SoldQuantity,
                         Adjusted = r.AdjustedQuantity,
                         Closing = r.ClosingQuantity,
+                        SoldInPacks = PackFormatter.Describe(r.SoldQuantity, r.TrackingUnit, r.PackName, r.PackSize),
+                        InPacks = PackFormatter.Describe(r.ClosingQuantity, r.TrackingUnit, r.PackName, r.PackSize),
+                        SalesValue = r.SalesValue,
                         Status = string.Join(" | ", status),
                         IsNegative = r.IsNegative
                     };
@@ -156,8 +192,7 @@ namespace POSGardenia
                 int negative = display.Count(d => d.IsNegative);
 
                 DailyStockSummaryTextBlock.Text =
-                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   " +
-                    "Closing = Opening + Received - Sold + Adjusted. Each day's closing is the next day's opening.";
+                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   Sales value: {display.Sum(d => d.SalesValue):#,0.00}";
             }
             catch (Exception ex)
             {
@@ -189,27 +224,85 @@ namespace POSGardenia
                 StockEntryItemComboBox.SelectedItem = items.FirstOrDefault(i => i.Id == stockItemId);
         }
 
-        // "Counted in": the item's own unit, or a bigger pack (a bottle, a pack of cigarettes).
-        private void LoadEntryUnitOptions()
+        // The quantity is always in the item's own unit (ml / bottle / unit); say which one.
+        private void OnEntryItemChanged()
         {
-            if (StockEntryItemComboBox.SelectedItem is not StockItem item)
+            var item = StockEntryItemComboBox.SelectedItem as StockItem;
+            StockEntryQuantityLabel.Text = item == null ? "Quantity" : $"Quantity ({item.TrackingUnit})";
+            LoadPackEditor(item);
+        }
+
+        // -----------------------------
+        // Bottle / pack size of the selected item
+        // -----------------------------
+
+        private void LoadPackEditor(StockItem? item)
+        {
+            if (PackItemTextBlock == null)
+                return;
+
+            bool needsPack = item != null && !PackFormatter.IsCountedInBottles(item.TrackingUnit);
+            PackSizeTextBox.IsEnabled = needsPack;
+            SavePackSizeButton.IsEnabled = needsPack;
+
+            if (item == null)
             {
-                StockEntryUnitComboBox.ItemsSource = null;
+                PackItemTextBlock.Text = "Select an item in the list above (or in Item) to set its bottle / pack size.";
+                PackNameTextBox.Text = "";
+                PackSizeTextBox.Text = "";
+                PackUnitTextBlock.Text = "";
                 return;
             }
 
-            StockEntryUnitComboBox.ItemsSource = BuildPackOptions(item.Id, item.TrackingUnit);
-            StockEntryUnitComboBox.SelectedIndex = 0;
+            PackNameTextBox.Text = PackFormatter.PackNameFor(item.TrackingUnit);
+            PackUnitTextBlock.Text = item.TrackingUnit;
+
+            if (!needsPack)
+            {
+                PackItemTextBlock.Text = $"{item.Name} (counted in bottles) - no bottle / pack size is needed.";
+                PackSizeTextBox.Text = "";
+                return;
+            }
+
+            PackItemTextBlock.Text = $"{item.Name} (counted in {item.TrackingUnit})";
+            PackSizeTextBox.Text = item.PackSize?.ToString("0.##") ?? "";
         }
 
-        private List<PackOption> BuildPackOptions(int stockItemId, string unit)
+        private void SavePackSize_Click(object sender, RoutedEventArgs e)
         {
-            var options = new List<PackOption> { new PackOption { Label = unit, Units = 1 } };
-            options.AddRange(_stockService.GetPackOptions(stockItemId)
-                .GroupBy(o => o.Units)
-                .Select(g => new PackOption { Label = $"{g.First().Label} ({g.Key:0.##} {unit})", Units = g.Key }));
+            try
+            {
+                if (StockEntryItemComboBox.SelectedItem is not StockItem item)
+                {
+                    MessageBox.Show("Select an item first.");
+                    return;
+                }
 
-            return options;
+                decimal? size = null;
+                if (!string.IsNullOrWhiteSpace(PackSizeTextBox.Text))
+                {
+                    if (!decimal.TryParse(PackSizeTextBox.Text.Trim(), out decimal parsed) || parsed <= 0)
+                    {
+                        MessageBox.Show("Per bottle/pack size: enter a number greater than zero, or leave it blank to remove it.");
+                        return;
+                    }
+
+                    size = parsed;
+                }
+
+                _stockService.SetPack(item.Id, size);
+
+                RefreshStockItems();      // reloads the item list (and this editor) with the saved size
+                RefreshDailyStock();
+
+                StockEntryHintTextBlock.Text = size.HasValue
+                    ? $"Saved: 1 {PackFormatter.PackNameFor(item.TrackingUnit)} = {size:0.##} {item.TrackingUnit} for {item.Name}."
+                    : $"Bottle / pack size removed for {item.Name}.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
         }
 
         private void AddStockEntry_Click(object sender, RoutedEventArgs e)
@@ -228,8 +321,7 @@ namespace POSGardenia
                     return;
                 }
 
-                var pack = StockEntryUnitComboBox.SelectedItem as PackOption ?? new PackOption { Units = 1 };
-                decimal total = quantity * pack.Units;
+                decimal total = quantity;   // always in the item's own unit
                 string? note = string.IsNullOrWhiteSpace(StockEntryNoteTextBox.Text) ? null : StockEntryNoteTextBox.Text.Trim();
                 var date = SelectedStockDate;
                 string type = StockEntryTypeComboBox.SelectedItem as string ?? EntryReceived;

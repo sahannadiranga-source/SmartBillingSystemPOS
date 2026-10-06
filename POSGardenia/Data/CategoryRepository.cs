@@ -7,16 +7,17 @@ namespace POSGardenia.Data
     public class CategoryRepository
     {
         // New categories are always added active; use Deactivate / Reactivate to change that.
-        public void Add(string name, bool isKitchenItem)
+        public void Add(string name, bool isKitchenItem, string? buttonColor = null)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                INSERT INTO Categories (Name, IsActive, IsKitchenItem)
-                VALUES (@name, 1, @isKitchenItem);";
+                INSERT INTO Categories (Name, IsActive, IsKitchenItem, ButtonColor)
+                VALUES (@name, 1, @isKitchenItem, @buttonColor);";
             command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@buttonColor", (object?)PosColors.Normalize(buttonColor) ?? DBNull.Value);
             command.Parameters.AddWithValue("@isKitchenItem", isKitchenItem ? 1 : 0);
             command.ExecuteNonQuery();
         }
@@ -24,7 +25,7 @@ namespace POSGardenia.Data
         // Renames a category and sets its kitchen flag. The kitchen flag lives on the category:
         // every product in it copies it (Products.IsKitchenItem is kept in step, so the
         // kitchen-ticket queries keep working unchanged). One transaction: all or nothing.
-        public void Update(int categoryId, string name, bool isKitchenItem)
+        public void Update(int categoryId, string name, bool isKitchenItem, string? buttonColor = null)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
@@ -33,8 +34,9 @@ namespace POSGardenia.Data
             using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
-                command.CommandText = "UPDATE Categories SET Name = @name, IsKitchenItem = @flag WHERE Id = @id;";
+                command.CommandText = "UPDATE Categories SET Name = @name, IsKitchenItem = @flag, ButtonColor = @buttonColor WHERE Id = @id;";
                 command.Parameters.AddWithValue("@id", categoryId);
+                command.Parameters.AddWithValue("@buttonColor", (object?)PosColors.Normalize(buttonColor) ?? DBNull.Value);
                 command.Parameters.AddWithValue("@name", name);
                 command.Parameters.AddWithValue("@flag", isKitchenItem ? 1 : 0);
                 command.ExecuteNonQuery();
@@ -60,7 +62,7 @@ namespace POSGardenia.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT Id, Name, IsActive, IsKitchenItem
+                SELECT Id, Name, IsActive, IsKitchenItem, ButtonColor
                 FROM Categories
                 WHERE Name = @name AND IsDeleted = 0
                 LIMIT 1;";
@@ -78,7 +80,7 @@ namespace POSGardenia.Data
             connection.Open();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Name, IsActive, IsKitchenItem FROM Categories WHERE IsDeleted = 0 ORDER BY Name;";
+            command.CommandText = "SELECT Id, Name, IsActive, IsKitchenItem, ButtonColor FROM Categories WHERE IsDeleted = 0 ORDER BY Name;";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -96,7 +98,7 @@ namespace POSGardenia.Data
 
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT Id, Name, IsActive, IsKitchenItem
+                SELECT Id, Name, IsActive, IsKitchenItem, ButtonColor
                 FROM Categories
                 WHERE IsActive = 1 AND IsDeleted = 0
                 ORDER BY Name;";
@@ -160,7 +162,8 @@ namespace POSGardenia.Data
                 Id = reader.GetInt32(0),
                 Name = reader.GetString(1),
                 IsActive = reader.GetInt32(2) == 1,
-                IsKitchenItem = reader.GetInt32(3) == 1
+                IsKitchenItem = reader.GetInt32(3) == 1,
+                ButtonColor = reader.IsDBNull(4) ? null : reader.GetString(4)
             };
         }
     }

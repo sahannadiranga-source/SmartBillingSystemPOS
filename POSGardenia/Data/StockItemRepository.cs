@@ -8,21 +8,39 @@ namespace POSGardenia.Data
     // A stock item is a "main item" (e.g. Arrack in ml). Products link to it through Products.StockItemId.
     public class StockItemRepository
     {
+        // Columns read by Map(): keep this list and Map() in step.
+        private const string ItemColumns =
+            "Id, Name, CategoryId, TrackingUnit, CurrentQuantity, IsActive, PackName, PackSize";
+
         // Quantity always starts at 0; it only ever moves through StockMovementRepository.Insert.
         public int Add(SqliteConnection connection, SqliteTransaction transaction, StockItem item)
         {
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = @"
-                INSERT INTO StockItems (Name, CategoryId, TrackingUnit, CurrentQuantity, IsActive, IsDeleted)
-                VALUES (@name, @categoryId, @trackingUnit, 0, 1, 0);
+                INSERT INTO StockItems (Name, CategoryId, TrackingUnit, PackName, PackSize, CurrentQuantity, IsActive, IsDeleted)
+                VALUES (@name, @categoryId, @trackingUnit, @packName, @packSize, 0, 1, 0);
                 SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@name", item.Name);
             command.Parameters.AddWithValue("@categoryId", item.CategoryId.HasValue ? item.CategoryId.Value : DBNull.Value);
             command.Parameters.AddWithValue("@trackingUnit", item.TrackingUnit);
+            command.Parameters.AddWithValue("@packName", string.IsNullOrWhiteSpace(item.PackName) ? DBNull.Value : item.PackName);
+            command.Parameters.AddWithValue("@packSize", item.PackSize.HasValue ? item.PackSize.Value : DBNull.Value);
 
             return Convert.ToInt32(command.ExecuteScalar());
+        }
+
+        // Sets (or, with null, clears) the full bottle / pack of a main item.
+        public void UpdatePack(SqliteConnection connection, SqliteTransaction transaction, int id, string? packName, decimal? packSize)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE StockItems SET PackName = @packName, PackSize = @packSize WHERE Id = @id;";
+            command.Parameters.AddWithValue("@id", id);
+            command.Parameters.AddWithValue("@packName", packSize.HasValue && !string.IsNullOrWhiteSpace(packName) ? packName : DBNull.Value);
+            command.Parameters.AddWithValue("@packSize", packSize.HasValue ? packSize.Value : DBNull.Value);
+            command.ExecuteNonQuery();
         }
 
         public StockItem? GetById(int id)
@@ -31,8 +49,8 @@ namespace POSGardenia.Data
             connection.Open();
 
             using var command = connection.CreateCommand();
-            command.CommandText = @"
-                SELECT Id, Name, CategoryId, TrackingUnit, CurrentQuantity, IsActive
+            command.CommandText = $@"
+                SELECT {ItemColumns}
                 FROM StockItems
                 WHERE Id = @id AND IsDeleted = 0;";
             command.Parameters.AddWithValue("@id", id);
@@ -54,8 +72,8 @@ namespace POSGardenia.Data
         {
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = @"
-                SELECT Id, Name, CategoryId, TrackingUnit, CurrentQuantity, IsActive
+            command.CommandText = $@"
+                SELECT {ItemColumns}
                 FROM StockItems
                 WHERE Name = @name COLLATE NOCASE AND IsDeleted = 0
                 LIMIT 1;";
@@ -73,8 +91,8 @@ namespace POSGardenia.Data
             connection.Open();
 
             using var command = connection.CreateCommand();
-            command.CommandText = @"
-                SELECT Id, Name, CategoryId, TrackingUnit, CurrentQuantity, IsActive
+            command.CommandText = $@"
+                SELECT {ItemColumns}
                 FROM StockItems
                 WHERE IsActive = 1 AND IsDeleted = 0
                 ORDER BY Name;";
@@ -98,7 +116,8 @@ namespace POSGardenia.Data
             command.CommandText = @"
                 SELECT si.Id, si.Name, si.TrackingUnit,
                        si.CurrentQuantity,
-                       (SELECT COUNT(*) FROM Products p WHERE p.StockItemId = si.Id AND p.IsDeleted = 0)
+                       (SELECT COUNT(*) FROM Products p WHERE p.StockItemId = si.Id AND p.IsDeleted = 0),
+                       si.PackName, si.PackSize
                 FROM StockItems si
                 WHERE si.IsDeleted = 0
                 ORDER BY si.Name;";
@@ -112,34 +131,13 @@ namespace POSGardenia.Data
                     Name = reader.GetString(1),
                     Unit = reader.GetString(2),
                     InStock = reader.GetDecimal(3),
-                    LinkedProducts = reader.GetInt32(4)
+                    LinkedProducts = reader.GetInt32(4),
+                    PackName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    PackSize = reader.IsDBNull(6) ? null : reader.GetDecimal(6)
                 });
             }
 
             return items;
-        }
-
-        // Bigger packs sold from this stock (e.g. "Whiskey (Bottle)" = 750 ml), biggest first.
-        public List<PackOption> GetPackOptions(int stockItemId)
-        {
-            var options = new List<PackOption>();
-
-            using var connection = DatabaseHelper.GetConnection();
-            connection.Open();
-
-            using var command = connection.CreateCommand();
-            command.CommandText = @"
-                SELECT Name, UnitsPerSale
-                FROM Products
-                WHERE StockItemId = @id AND IsDeleted = 0 AND UnitsPerSale > 1
-                ORDER BY UnitsPerSale DESC, Name;";
-            command.Parameters.AddWithValue("@id", stockItemId);
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-                options.Add(new PackOption { Label = reader.GetString(0), Units = reader.GetDecimal(1) });
-
-            return options;
         }
 
         private static StockItem Map(SqliteDataReader reader)
@@ -151,7 +149,9 @@ namespace POSGardenia.Data
                 CategoryId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
                 TrackingUnit = reader.GetString(3),
                 CurrentQuantity = reader.GetDecimal(4),
-                IsActive = reader.GetInt32(5) == 1
+                IsActive = reader.GetInt32(5) == 1,
+                PackName = reader.IsDBNull(6) ? null : reader.GetString(6),
+                PackSize = reader.IsDBNull(7) ? null : reader.GetDecimal(7)
             };
         }
     }

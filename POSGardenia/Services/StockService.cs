@@ -200,7 +200,29 @@ namespace POSGardenia.Services
 
         public List<StockItem> GetActiveStockItems() => _stockItemRepository.GetActive();
 
-        public List<PackOption> GetPackOptions(int stockItemId) => _stockItemRepository.GetPackOptions(stockItemId);
+        // Sets what one full bottle / pack of a main item holds (e.g. 750 ml per bottle, 20 units per pack).
+        // The name is not chosen: ml -> "bottle", unit -> "pack". A null size removes it.
+        public void SetPack(int stockItemId, decimal? packSize)
+        {
+            if (packSize.HasValue && packSize.Value <= 0)
+                throw new Exception("Bottle / pack size must be greater than zero (or leave it blank to remove it).");
+
+            var item = _stockItemRepository.GetById(stockItemId)
+                ?? throw new Exception("Stock item not found.");
+
+            if (packSize.HasValue && PackFormatter.IsCountedInBottles(item.TrackingUnit))
+                throw new Exception("Items counted in bottles do not need a bottle / pack size.");
+
+            string? name = packSize.HasValue ? PackFormatter.PackNameFor(item.TrackingUnit) : null;
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            _stockItemRepository.UpdatePack(connection, transaction, stockItemId, name, packSize);
+
+            transaction.Commit();
+        }
 
         // Consistency check: cached quantities must equal the ledger totals.
         public List<string> FindQuantityMismatches()

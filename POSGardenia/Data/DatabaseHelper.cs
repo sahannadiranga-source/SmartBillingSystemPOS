@@ -176,6 +176,8 @@ namespace POSGardenia.Data
                         Name TEXT NOT NULL,
                         CategoryId INTEGER NULL,
                         TrackingUnit TEXT NOT NULL,
+                        PackName TEXT NULL,
+                        PackSize REAL NULL,
                         CurrentQuantity REAL NOT NULL DEFAULT 0,
                         IsActive INTEGER NOT NULL DEFAULT 1,
                         IsDeleted INTEGER NOT NULL DEFAULT 0,
@@ -225,6 +227,30 @@ namespace POSGardenia.Data
                 command.CommandText = createStockMovementsTable;
                 command.ExecuteNonQuery();
 
+                // Kitchen tickets: when a bill item was sent to the kitchen. Nothing was ever sent before this
+                // column existed, so on first run every existing item counts as already handled; otherwise
+                // the first ticket on any open bill would print its old items again.
+                bool addedKotColumn = false;
+                using (var alterKot = connection.CreateCommand())
+                {
+                    alterKot.CommandText = "ALTER TABLE BillItems ADD COLUMN KotSentAt TEXT NULL;";
+                    try { alterKot.ExecuteNonQuery(); addedKotColumn = true; } catch { }
+                }
+
+                // The kitchen ticket number (1, 2, 3 ... restarting each day) the item was sent on.
+                using (var alterKotNo = connection.CreateCommand())
+                {
+                    alterKotNo.CommandText = "ALTER TABLE BillItems ADD COLUMN KotNo INTEGER NULL;";
+                    try { alterKotNo.ExecuteNonQuery(); } catch { }
+                }
+
+                if (addedKotColumn)
+                {
+                    using var markOld = connection.CreateCommand();
+                    markOld.CommandText = "UPDATE BillItems SET IsKitchenPrinted = 1 WHERE IsKitchenPrinted = 0;";
+                    try { markOld.ExecuteNonQuery(); } catch { }
+                }
+
                 // The kitchen flag moved from the product to its category. When the column is first
                 // added, a category becomes a kitchen category if any of its products was a kitchen
                 // item, and its products then follow the category (so nothing is missed on the
@@ -245,6 +271,39 @@ namespace POSGardenia.Data
                         UPDATE Products SET IsKitchenItem =
                             IFNULL((SELECT c.IsKitchenItem FROM Categories c WHERE c.Id = Products.CategoryId), 0);";
                     try { syncKitchen.ExecuteNonQuery(); } catch { }
+                }
+
+                // Colour of a category's product buttons on the POS. When the column is first added, beer
+                // categories start yellow and cigarette categories light red; the owner can change any
+                // category's colour on the Categories page. Blank = automatic (kitchen green, otherwise blue).
+                bool addedColorColumn = false;
+                using (var alterCategoriesColor = connection.CreateCommand())
+                {
+                    alterCategoriesColor.CommandText = "ALTER TABLE Categories ADD COLUMN ButtonColor TEXT NULL;";
+                    try { alterCategoriesColor.ExecuteNonQuery(); addedColorColumn = true; } catch { }
+                }
+
+                if (addedColorColumn)
+                {
+                    using var presetColors = connection.CreateCommand();
+                    presetColors.CommandText = @"
+                        UPDATE Categories SET ButtonColor = 'Yellow' WHERE IsKitchenItem = 0 AND LOWER(Name) LIKE '%beer%';
+                        UPDATE Categories SET ButtonColor = 'Light red' WHERE IsKitchenItem = 0 AND (LOWER(Name) LIKE '%cig%' OR LOWER(Name) LIKE '%tobacco%');";
+                    try { presetColors.ExecuteNonQuery(); } catch { }
+                }
+
+                // A main item can have a bottle / pack size (750 ml, 20 units) so stock can be shown as
+                // bottles / packs. It is only ever set by the owner (Inventory > Daily Stock); nothing is guessed.
+                using (var alterPack1 = connection.CreateCommand())
+                {
+                    alterPack1.CommandText = "ALTER TABLE StockItems ADD COLUMN PackName TEXT NULL;";
+                    try { alterPack1.ExecuteNonQuery(); } catch { }
+                }
+
+                using (var alterPack2 = connection.CreateCommand())
+                {
+                    alterPack2.CommandText = "ALTER TABLE StockItems ADD COLUMN PackSize REAL NULL;";
+                    try { alterPack2.ExecuteNonQuery(); } catch { }
                 }
 
                 // Enforce name uniqueness among non-deleted rows only (partial index), so a

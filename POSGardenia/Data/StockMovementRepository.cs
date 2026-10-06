@@ -87,7 +87,15 @@ namespace POSGardenia.Data
                               AND m.MovementType IN ('Sale', 'SaleReversal')), 0) AS Sold,
                     IFNULL((SELECT SUM(m.QuantityChange) FROM StockMovements m
                             WHERE m.StockItemId = si.Id AND m.MovementDate = @date
-                              AND m.MovementType IN ('Adjustment', 'Wastage')), 0) AS Adjusted
+                              AND m.MovementType IN ('Adjustment', 'Wastage')), 0) AS Adjusted,
+                    IFNULL((SELECT SUM(CASE m.MovementType WHEN 'Sale' THEN bi.UnitPrice * bi.Quantity
+                                                           ELSE -(bi.UnitPrice * bi.Quantity) END)
+                            FROM StockMovements m
+                            INNER JOIN BillItems bi ON bi.Id = m.BillItemId
+                            WHERE m.StockItemId = si.Id AND m.MovementDate = @date
+                              AND m.MovementType IN ('Sale', 'SaleReversal')), 0) AS SalesValue,
+                    si.PackName,
+                    si.PackSize
                 FROM StockItems si
                 WHERE si.IsDeleted = 0
                   AND (si.IsActive = 1
@@ -106,7 +114,10 @@ namespace POSGardenia.Data
                     OpeningQuantity = reader.GetDecimal(3),
                     ReceivedQuantity = reader.GetDecimal(4),
                     SoldQuantity = reader.GetDecimal(5),
-                    AdjustedQuantity = reader.GetDecimal(6)
+                    AdjustedQuantity = reader.GetDecimal(6),
+                    SalesValue = reader.GetDecimal(7),
+                    PackName = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    PackSize = reader.IsDBNull(9) ? null : reader.GetDecimal(9)
                 });
             }
 
