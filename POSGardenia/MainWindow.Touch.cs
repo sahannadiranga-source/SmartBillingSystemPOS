@@ -89,7 +89,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save the keyboard setting.\n" + ex.Message);
+                AppMessage.Show("Failed to save the keyboard setting.\n" + ex.Message);
             }
         }
     }

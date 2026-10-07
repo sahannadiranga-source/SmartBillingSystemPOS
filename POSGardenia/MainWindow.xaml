@@ -609,7 +609,8 @@
                                     <Border Style="{StaticResource CardStyle}">
                                         <StackPanel>
                                             <TextBlock Text="Stock Items" FontSize="24" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <DataGrid x:Name="StockItemsDataGrid" MinHeight="200" MaxHeight="420"/>
+                                            <DataGrid x:Name="StockItemsDataGrid" MinHeight="200" MaxHeight="420"
+                                                      IsReadOnly="False" CanUserDeleteRows="False"/>
                                         </StackPanel>
                                     </Border>
 

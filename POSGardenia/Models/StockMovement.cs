@@ -8,6 +8,9 @@ namespace POSGardenia.Models
         public const string SaleReversal = "SaleReversal";
         public const string Adjustment = "Adjustment";
         public const string Wastage = "Wastage";
+
+        // The stock counted by hand at the start of a day, as a change to that day's opening.
+        public const string OpeningCount = "OpeningCount";
     }
 
     // One row of the stock ledger. QuantityChange is negative when stock goes out.

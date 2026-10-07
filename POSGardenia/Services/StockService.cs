@@ -15,7 +15,7 @@ namespace POSGardenia.Services
 
         private readonly StockItemRepository _stockItemRepository = new();
         private readonly StockMovementRepository _stockMovementRepository = new();
-        private readonly StockCountRepository _stockCountRepository = new();
+        private readonly StockOpeningCountRepository _openingCountRepository = new();
 
         // -----------------------------
         // Bill hooks (called inside the bill's own transaction)
@@ -190,105 +190,94 @@ namespace POSGardenia.Services
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
-            string day = date.ToString(DateFormat);
-            var rows = _stockMovementRepository.GetDailyRows(connection, day);
-
-            var counts = _stockCountRepository.GetForDate(connection, day);
-            if (counts.Count == 0)
-                return rows;
-
-            var servings = _stockCountRepository.GetSmallestServings(connection);
-
-            foreach (var row in rows)
-            {
-                if (!counts.TryGetValue(row.StockItemId, out var count))
-                    continue;
-
-                // Compare with the previous count plus everything since (so each count is judged on its own
-                // stretch of days). The first count of an item has nothing earlier: it is compared with the books.
-                var previous = _stockCountRepository.GetLatestBefore(connection, row.StockItemId, day);
-                decimal expected = row.ClosingQuantity;
-                decimal sold = 0;
-
-                if (previous != null)
-                {
-                    var (net, soldSince) = _stockCountRepository.GetMovementsBetween(connection, row.StockItemId, previous.CountDate, day);
-                    expected = previous.TotalQuantity + net;
-                    sold = soldSince;
-                }
-
-                decimal? pricePerUnit = null, shotSize = null;
-                if (servings.TryGetValue(row.StockItemId, out var serving) && serving.Units > 0)
-                {
-                    pricePerUnit = serving.Price / serving.Units;
-                    shotSize = serving.Units;
-                }
-
-                var check = CountCheck.Evaluate(count.TotalQuantity, expected, previous != null, sold,
-                    row.PackSize, row.ExtraPerPack, row.TrackingUnit, pricePerUnit, shotSize);
-
-                row.CountedQuantity = count.TotalQuantity;
-                row.CountDifference = check.Difference;
-                row.CountCheckText = check.Text;
-                row.CountTone = check.Tone;
-            }
-
-            return rows;
+            return _stockMovementRepository.GetDailyRows(connection, date.ToString(DateFormat));
         }
 
         // -----------------------------
-        // End-of-day stock count
+        // Opening count (Stock Items tab -> that day's Opening on Daily Stock)
         // -----------------------------
 
-        public StockCount? GetCount(int stockItemId, DateTime date)
+        // Counts an item by hand for today: counted is the amount in the item's own unit (ml / bottle / unit).
+        // It becomes today's Opening. The ledger gets one "OpeningCount" entry for the gap between the books
+        // (everything before today) and the count; counting again only adds the further change, so history is kept.
+        // Difference (saved with the day) = the counted opening - what the books closed with yesterday.
+        public void SaveOpeningCount(int stockItemId, DateTime date, decimal counted)
         {
+            if (date.Date != DateTime.Today)
+                throw new Exception("The opening count is for today only.");
+
+            if (counted < 0)
+                throw new Exception("The counted amount cannot be negative.");
+
+            string day = date.ToString(DateFormat);
+
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
+            using var transaction = connection.BeginTransaction();
 
-            return _stockCountRepository.Get(connection, stockItemId, date.ToString(DateFormat));
-        }
+            if (_stockItemRepository.GetById(stockItemId) == null)
+                throw new Exception("Stock item not found.");
 
-        // Saves what was physically there at the end of the day: whole bottles / packs plus the open one.
-        // It never changes the stock itself; it is only compared with it. Counting again replaces the count.
-        public StockCount SaveCount(int stockItemId, DateTime date, decimal fullBottles, decimal openQuantity)
-        {
-            if (date.Date > DateTime.Today)
-                throw new Exception("A count cannot be for a future date.");
+            decimal previousClose = _openingCountRepository.SumMovementsBefore(connection, transaction, stockItemId, day);
+            decimal alreadyMoved = _openingCountRepository.SumOpeningCountMovements(connection, transaction, stockItemId, day);
+            decimal change = (counted - previousClose) - alreadyMoved;
 
-            if (fullBottles < 0 || openQuantity < 0)
-                throw new Exception("Counts cannot be negative.");
+            if (change != 0)
+                WriteOpeningCountMovement(connection, transaction, stockItemId, day, change, $"Opening count {counted:0.##}");
 
-            if (fullBottles != Math.Floor(fullBottles))
-                throw new Exception("Full bottles / packs must be a whole number.");
-
-            var item = _stockItemRepository.GetById(stockItemId)
-                ?? throw new Exception("Stock item not found.");
-
-            if (fullBottles > 0 && !(item.PackSize is > 0))
-                throw new Exception("Set the bottle / pack size first, or enter the whole amount in the open field.");
-
-            var count = new StockCount
+            _openingCountRepository.Save(connection, transaction, new StockOpeningCount
             {
                 StockItemId = stockItemId,
-                CountDate = date.ToString(DateFormat),
-                FullBottles = fullBottles,
-                OpenQuantity = openQuantity,
-                TotalQuantity = fullBottles * (item.PackSize ?? 0) + openQuantity
-            };
+                CountDate = day,
+                CountedQuantity = counted,
+                PreviousClose = previousClose,
+                Difference = counted - previousClose
+            });
+
+            transaction.Commit();
+        }
+
+        // Takes today's count away: the opening goes back to what the books say.
+        public void ClearOpeningCount(int stockItemId, DateTime date)
+        {
+            if (date.Date != DateTime.Today)
+                throw new Exception("The opening count is for today only.");
+
+            string day = date.ToString(DateFormat);
 
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
-            _stockCountRepository.Save(connection, count);
+            using var transaction = connection.BeginTransaction();
 
-            return count;
+            decimal alreadyMoved = _openingCountRepository.SumOpeningCountMovements(connection, transaction, stockItemId, day);
+            if (alreadyMoved != 0)
+                WriteOpeningCountMovement(connection, transaction, stockItemId, day, -alreadyMoved, "Opening count removed");
+
+            _openingCountRepository.Delete(connection, transaction, stockItemId, day);
+
+            transaction.Commit();
         }
 
-        public void DeleteCount(int stockItemId, DateTime date)
+        public StockOpeningCount? GetOpeningCount(int stockItemId, DateTime date)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
-            _stockCountRepository.Delete(connection, stockItemId, date.ToString(DateFormat));
+            return _openingCountRepository.Get(connection, stockItemId, date.ToString(DateFormat));
+        }
+
+        private void WriteOpeningCountMovement(
+            SqliteConnection connection, SqliteTransaction transaction,
+            int stockItemId, string day, decimal change, string note)
+        {
+            _stockMovementRepository.Insert(connection, transaction, new StockMovement
+            {
+                StockItemId = stockItemId,
+                MovementDate = day,
+                MovementType = StockMovementTypes.OpeningCount,
+                QuantityChange = change,
+                Note = note
+            });
         }
 
         // -----------------------------

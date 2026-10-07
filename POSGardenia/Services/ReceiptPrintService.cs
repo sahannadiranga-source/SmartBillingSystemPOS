@@ -1,4 +1,5 @@
-﻿using POSGardenia.Models;
+﻿using POSGardenia.Controls;
+using POSGardenia.Models;
 using System;
 using System.Linq;
 using System.Printing;
@@ -39,7 +40,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print receipt.\n" + ex.Message);
             }
         }
 
@@ -65,7 +66,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print receipt.\n" + ex.Message);
             }
         }
 
@@ -96,7 +97,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print test receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print test receipt.\n" + ex.Message);
             }
         }
 

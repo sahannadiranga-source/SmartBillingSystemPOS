@@ -1,3 +1,4 @@
+using POSGardenia.Controls;
 using POSGardenia.Models;
 using POSGardenia.Services;
 using System;
@@ -30,6 +31,13 @@ namespace POSGardenia
             ItemSalesReportDataGrid.AutoGeneratingColumn += ItemSalesGrid_AutoGeneratingColumn;
 
             DailyStockDataGrid.LoadingRow += DailyStockDataGrid_LoadingRow;
+
+            StockItemsDataGrid.BeginningEdit += (_, e) =>
+            {
+                if (e.Row.Item is StockItemDisplay row)
+                    row.BeginCountEdit();
+            };
+            StockItemsDataGrid.CellEditEnding += StockItemsGrid_CellEditEnding;
             DailyStockDatePicker.SelectedDateChanged += (_, _) => RefreshDailyStock();
             StockAddItemComboBox.SelectionChanged += (_, _) => OnAddStockItemChanged();
             StockItemsDataGrid.SelectionChanged += (_, _) =>
@@ -96,11 +104,30 @@ namespace POSGardenia
 
             bool dailySheet = sender is DataGrid grid && grid.Name == nameof(DailyStockDataGrid);
 
+            // The second Counted column of Stock Items is where the count is usually typed: bottles first, then the rest.
+            if (!dailySheet && e.PropertyName == nameof(StockItemDisplay.CountedInPacks))
+                // (no explicit OneWay: WPF would then treat the column as read-only)
+                e.Column = new CountedBottlesColumn { Binding = new Binding(nameof(StockItemDisplay.CountedInPacks)) };
+
+            // Everything is read-only except the two Counted columns of Stock Items (you type the count there).
+            e.Column.IsReadOnly = dailySheet ||
+                (e.PropertyName != nameof(StockItemDisplay.Counted) && e.PropertyName != nameof(StockItemDisplay.CountedInPacks));
+
+            // The cell's text box is tagged "decimal" when it is created (before it takes focus), so the number
+            // keypad opens for it, not the full keyboard.
+            if (e.PropertyName == nameof(StockItemDisplay.Counted) && !dailySheet && e.Column is DataGridTextColumn countedColumn)
+            {
+                var editStyle = new Style(typeof(TextBox), (sender as FrameworkElement)?.TryFindResource(typeof(TextBox)) as Style);
+                editStyle.Setters.Add(new Setter(FrameworkElement.TagProperty, "decimal"));
+                countedColumn.EditingElementStyle = editStyle;
+            }
+
             e.Column.Header = e.PropertyName switch
             {
-                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left" : "Bottles / Packs",
+                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left Quantity" : "In Stock",
                 nameof(DailyStockDisplay.SoldInPacks) => "Sold",
-                nameof(DailyStockDisplay.SalesValue) => "Sales Value",
+                nameof(DailyStockDisplay.SalesValue) => "Sales Amount",
+                nameof(StockItemDisplay.CountedInPacks) => "Counted",
                 _ => Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ")
             };
 
@@ -119,10 +146,8 @@ namespace POSGardenia
 
         private static void DailyStockDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
         {
-            if (e.Row.Item is DailyStockDisplay row && (row.IsNegative || row.CountTone == "red"))
+            if (e.Row.Item is DailyStockDisplay row && row.IsNegative)
                 e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFE, 0xE2, 0xE2));
-            else if (e.Row.Item is DailyStockDisplay checkRow && checkRow.CountTone == "amber")
-                e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFE, 0xF9, 0xC3));
             else
                 e.Row.ClearValue(DataGridRow.BackgroundProperty);
         }
@@ -136,7 +161,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load inventory.\n" + ex.Message);
+                AppMessage.Show("Failed to load inventory.\n" + ex.Message);
             }
         }
 
@@ -168,6 +193,7 @@ namespace POSGardenia
                         Item = r.StockItemName,
                         Unit = r.TrackingUnit,
                         Opening = r.OpeningQuantity,
+                        Difference = r.Difference,
                         Received = r.ReceivedQuantity,
                         Sold = r.SoldQuantity,
                         Adjusted = r.AdjustedQuantity,
@@ -189,11 +215,76 @@ namespace POSGardenia
                 int negative = display.Count(d => d.IsNegative);
 
                 DailyStockSummaryTextBlock.Text =
-                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   Sales value: {display.Sum(d => d.SalesValue):#,0.00}";
+                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   Sales amount: {display.Sum(d => d.SalesValue):#,0.00}";
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load daily stock.\n" + ex.Message);
+                AppMessage.Show("Failed to load daily stock.\n" + ex.Message);
+            }
+        }
+
+        // Typing a count into either Counted column saves it as today's opening count; clearing it removes it.
+        private void StockItemsGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
+        {
+            if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not StockItemDisplay row)
+                return;
+
+            try
+            {
+                decimal? total;
+
+                if (e.Column is CountedBottlesColumn)
+                {
+                    // bottles first, then the rest
+                    if (!row.TryGetCountedTotal(out total, out string error))
+                    {
+                        AppMessage.Show(error);
+                        e.Cancel = true;
+                        return;
+                    }
+                }
+                else if (e.EditingElement is TextBox box)
+                {
+                    string text = box.Text?.Trim() ?? "";
+
+                    if (text.Length == 0)
+                    {
+                        total = null;
+                    }
+                    else if (decimal.TryParse(text, out decimal counted) && counted >= 0)
+                    {
+                        total = counted;
+                    }
+                    else
+                    {
+                        AppMessage.Show("Counted: enter a number (0 or more), or leave it blank.");
+                        e.Cancel = true;
+                        return;
+                    }
+                }
+                else
+                {
+                    return;
+                }
+
+                if (total.HasValue)
+                    _stockService.SaveOpeningCount(row.Id, DateTime.Today, total.Value);
+                else if (row.Counted.HasValue)
+                    _stockService.ClearOpeningCount(row.Id, DateTime.Today);
+                else
+                    return;
+
+                // refresh after the cell has finished committing
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    RefreshStockItems();
+                    RefreshDailyStock();
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                AppMessage.Show(ex.Message);
+                e.Cancel = true;
             }
         }
 
@@ -211,13 +302,13 @@ namespace POSGardenia
             {
                 if (StockAddItemComboBox.SelectedItem is not StockItem item)
                 {
-                    MessageBox.Show("Select an item.");
+                    AppMessage.Show("Select an item.");
                     return;
                 }
 
                 if (!decimal.TryParse(StockAddQuantityTextBox.Text?.Trim(), out decimal quantity) || quantity <= 0)
                 {
-                    MessageBox.Show("Enter a quantity greater than zero.");
+                    AppMessage.Show("Enter a quantity greater than zero.");
                     return;
                 }
 
@@ -234,7 +325,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                AppMessage.Show(ex.Message);
             }
         }
 

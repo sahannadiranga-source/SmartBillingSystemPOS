@@ -314,47 +314,34 @@ namespace POSGardenia.Data
                     try { alterExtra.ExecuteNonQuery(); } catch { }
                 }
 
-                // Physical counts at the end of a day: whole bottles / packs plus the open one.
-                using (var createCounts = connection.CreateCommand())
+                // The stock counted by hand at the start of a day (it becomes that day's Opening on Daily Stock),
+                // with the saved Difference: the counted opening, minus what the books closed the day before with.
+                using (var createOpeningCounts = connection.CreateCommand())
                 {
-                    createCounts.CommandText = @"
-                        CREATE TABLE IF NOT EXISTS StockCounts (
+                    createOpeningCounts.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS StockOpeningCounts (
                             Id INTEGER PRIMARY KEY AUTOINCREMENT,
                             StockItemId INTEGER NOT NULL,
                             CountDate TEXT NOT NULL,
-                            FullBottles REAL NOT NULL DEFAULT 0,
-                            OpenQuantity REAL NOT NULL DEFAULT 0,
-                            TotalQuantity REAL NOT NULL DEFAULT 0,
+                            CountedQuantity REAL NOT NULL,
+                            PreviousClose REAL NOT NULL,
+                            Difference REAL NOT NULL,
                             CreatedAt TEXT NOT NULL,
                             FOREIGN KEY (StockItemId) REFERENCES StockItems(Id),
                             UNIQUE (StockItemId, CountDate)
                         );";
-                    createCounts.ExecuteNonQuery();
+                    createOpeningCounts.ExecuteNonQuery();
                 }
 
-                // A database that had the first version of this table (open amount called OpenMl, no total)
-                // gets the new columns, and any old counts are converted once.
-                bool addedOpenQuantity = false;
-                using (var alterCount1 = connection.CreateCommand())
+                // Difference used to be saved the other way round (previous close - opening). Counts saved that way
+                // are corrected here; once they are right this changes nothing.
+                using (var fixDifference = connection.CreateCommand())
                 {
-                    alterCount1.CommandText = "ALTER TABLE StockCounts ADD COLUMN OpenQuantity REAL NOT NULL DEFAULT 0;";
-                    try { alterCount1.ExecuteNonQuery(); addedOpenQuantity = true; } catch { }
-                }
-
-                using (var alterCount2 = connection.CreateCommand())
-                {
-                    alterCount2.CommandText = "ALTER TABLE StockCounts ADD COLUMN TotalQuantity REAL NOT NULL DEFAULT 0;";
-                    try { alterCount2.ExecuteNonQuery(); } catch { }
-                }
-
-                if (addedOpenQuantity)
-                {
-                    using var convertCounts = connection.CreateCommand();
-                    convertCounts.CommandText = @"
-                        UPDATE StockCounts SET
-                            OpenQuantity = OpenMl,
-                            TotalQuantity = FullBottles * IFNULL((SELECT PackSize FROM StockItems si WHERE si.Id = StockCounts.StockItemId), 0) + OpenMl;";
-                    try { convertCounts.ExecuteNonQuery(); } catch { }
+                    fixDifference.CommandText = @"
+                        UPDATE StockOpeningCounts
+                        SET Difference = CountedQuantity - PreviousClose
+                        WHERE ABS(Difference - (CountedQuantity - PreviousClose)) > 0.0001;";
+                    try { fixDifference.ExecuteNonQuery(); } catch { }
                 }
 
                 // Enforce name uniqueness among non-deleted rows only (partial index), so a

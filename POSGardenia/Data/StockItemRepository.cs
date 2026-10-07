@@ -139,8 +139,10 @@ namespace POSGardenia.Data
                        si.PackName, si.PackSize,
                        IFNULL((SELECT SUM(m.QuantityChange) FROM StockMovements m
                                WHERE m.StockItemId = si.Id AND m.MovementDate = @today
-                                 AND m.MovementType IN ('Restock', 'InitialStock')), 0)
+                                 AND m.MovementType IN ('Restock', 'InitialStock')), 0),
+                       oc.CountedQuantity
                 FROM StockItems si
+                LEFT JOIN StockOpeningCounts oc ON oc.StockItemId = si.Id AND oc.CountDate = @today
                 WHERE si.IsDeleted = 0
                 ORDER BY si.Name;";
             command.Parameters.AddWithValue("@today", DateTime.Today.ToString("yyyy-MM-dd"));
@@ -157,7 +159,8 @@ namespace POSGardenia.Data
                     LinkedProducts = reader.GetInt32(4),
                     PackName = reader.IsDBNull(5) ? null : reader.GetString(5),
                     PackSize = reader.IsDBNull(6) ? null : reader.GetDecimal(6),
-                    ReceivedToday = reader.GetDecimal(7)
+                    ReceivedToday = reader.GetDecimal(7),
+                    Counted = reader.IsDBNull(8) ? null : reader.GetDecimal(8)
                 });
             }
 

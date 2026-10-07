@@ -21,11 +21,8 @@ namespace POSGardenia.Models
         public decimal? PackSize { get; set; }
         public decimal? ExtraPerPack { get; set; }
 
-        // The end-of-day physical count and what it means (empty when this item was not counted that day).
-        public decimal? CountedQuantity { get; set; }
-        public decimal? CountDifference { get; set; }
-        public string CountCheckText { get; set; } = "";
-        public string CountTone { get; set; } = "";
+        // Counted opening minus the previous day's close (saved with the day); null when nothing was counted.
+        public decimal? Difference { get; set; }
 
         public decimal ClosingQuantity =>
             OpeningQuantity + ReceivedQuantity - SoldQuantity + AdjustedQuantity;
