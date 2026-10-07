@@ -935,8 +935,11 @@ namespace POSGardenia
                     if (!TryReadTrackedSettings(name, out string mainItem, out string unit, out decimal used))
                         return;
 
+                    if (!TryReadPackSize(out bool setPack, out decimal? packSize))
+                        return;
+
                     _productSetupService.CreateTrackedProduct(
-                        name, selectedCategory.Id, price, mainItem, unit, used);
+                        name, selectedCategory.Id, price, mainItem, unit, used, setPack, packSize);
                 }
                 else
                 {
@@ -976,10 +979,15 @@ namespace POSGardenia
             string? mainItem = null;
             string unit = "";
             decimal used = 0;
+            bool setPack = false;
+            decimal? packSize = null;
 
             if (TrackStockCheckBox.IsChecked == true)
             {
                 if (!TryReadTrackedSettings(name, out string trackedMainItem, out unit, out used))
+                    return;
+
+                if (!TryReadPackSize(out setPack, out packSize))
                     return;
 
                 mainItem = trackedMainItem;
@@ -994,7 +1002,7 @@ namespace POSGardenia
                 IsActive = _selectedManagementProduct.IsActive   // not changed by an edit: use Deactivate / Reactivate
             };
 
-            _productSetupService.UpdateProduct(updatedProduct, mainItem, unit, used);
+            _productSetupService.UpdateProduct(updatedProduct, mainItem, unit, used, setPack, packSize);
 
             ClearProductForm();
             LoadProducts();
@@ -1018,6 +1026,26 @@ namespace POSGardenia
             }
 
             return TryReadPositiveNumber(StockUsedPerSaleTextBox, "Stock used per sale", out used);
+        }
+
+        // Per bottle/pack size of the main item. setPack = false when the field is not in use (not tracked,
+        // or counted in bottles): the saved size is then left as it is. Blank = no size.
+        private bool TryReadPackSize(out bool setPack, out decimal? size)
+        {
+            setPack = PackSizeTextBox.IsEnabled;
+            size = null;
+
+            if (!setPack || string.IsNullOrWhiteSpace(PackSizeTextBox.Text))
+                return true;
+
+            if (!decimal.TryParse(PackSizeTextBox.Text.Trim(), out decimal value) || value <= 0)
+            {
+                MessageBox.Show("Per bottle/pack size: enter a number greater than zero, or leave it blank.");
+                return false;
+            }
+
+            size = value;
+            return true;
         }
 
         private static bool TryReadPositiveNumber(TextBox box, string label, out decimal value)
@@ -1067,6 +1095,9 @@ namespace POSGardenia
             MainItemComboBox.AddHandler(
                 System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
                 new TextChangedEventHandler((_, _) => UpdateMainItemUnit()));
+            MainItemUnitComboBox.AddHandler(
+                System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+                new TextChangedEventHandler((_, _) => UpdatePackField(CurrentExistingMainItem())));
 
             LoadMainItemOptions();
             ResetStockSetupFields();
@@ -1078,6 +1109,8 @@ namespace POSGardenia
             MainItemComboBox.Text = "";
             MainItemUnitComboBox.Text = "unit";
             StockUsedPerSaleTextBox.Text = "1";
+            PackSizeTextBox.Text = "";
+            _packFilledFor = 0;
 
             UpdateTrackStockEnabled();
         }
@@ -1103,18 +1136,59 @@ namespace POSGardenia
             if (MainItemComboBox == null || MainItemUnitComboBox == null || TrackStockCheckBox == null)
                 return;
 
-            var typed = MainItemComboBox.Text?.Trim() ?? "";
+            var existing = CurrentExistingMainItem();
 
-            if (_mainItems.TryGetValue(typed, out var existing))
+            if (existing != null)
             {
                 MainItemUnitComboBox.Text = existing.TrackingUnit;
                 MainItemUnitComboBox.IsEnabled = false;
-
             }
             else
             {
                 MainItemUnitComboBox.IsEnabled = TrackStockCheckBox.IsChecked == true;
             }
+
+            UpdatePackField(existing);
+        }
+
+        private StockItem? CurrentExistingMainItem()
+        {
+            var typed = MainItemComboBox?.Text?.Trim() ?? "";
+            return _mainItems.TryGetValue(typed, out var existing) ? existing : null;
+        }
+
+        // Which existing main item the size box was last filled from (0 = none), so typing a size is never overwritten.
+        private int _packFilledFor;
+
+        // The size box is only in use for a tracked item that is not counted in bottles. Choosing an existing
+        // main item shows its saved size; going back to a new name clears it.
+        private void UpdatePackField(StockItem? existing)
+        {
+            if (PackSizeTextBox == null || MainItemUnitComboBox == null || TrackStockCheckBox == null)
+                return;
+
+            string unit = MainItemUnitComboBox.Text?.Trim() ?? "";
+            bool allowed = TrackStockCheckBox.IsChecked == true && unit.Length > 0 && !PackFormatter.IsCountedInBottles(unit);
+
+            PackSizeTextBox.IsEnabled = allowed;
+            PackUnitTextBlock.Text = allowed ? unit : "";
+
+            if (existing != null)
+            {
+                if (_packFilledFor != existing.Id)
+                {
+                    PackSizeTextBox.Text = existing.PackSize?.ToString("0.##") ?? "";
+                    _packFilledFor = existing.Id;
+                }
+            }
+            else if (_packFilledFor != 0)
+            {
+                PackSizeTextBox.Text = "";
+                _packFilledFor = 0;
+            }
+
+            if (!allowed)
+                PackSizeTextBox.Text = "";
         }
 
         private void UpdateTrackStockEnabled()
@@ -1633,6 +1707,7 @@ namespace POSGardenia
                 CategoryComboBox.SelectedItem = matchingCategory;
 
                 LoadMainItemOptions();
+                _packFilledFor = 0;
 
                 bool tracked = selectedProduct.StockItemId.HasValue;
                 TrackStockCheckBox.IsChecked = tracked;

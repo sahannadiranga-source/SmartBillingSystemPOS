@@ -15,6 +15,7 @@ namespace POSGardenia.Services
 
         private readonly StockItemRepository _stockItemRepository = new();
         private readonly StockMovementRepository _stockMovementRepository = new();
+        private readonly StockCountRepository _stockCountRepository = new();
 
         // -----------------------------
         // Bill hooks (called inside the bill's own transaction)
@@ -189,7 +190,105 @@ namespace POSGardenia.Services
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
 
-            return _stockMovementRepository.GetDailyRows(connection, date.ToString(DateFormat));
+            string day = date.ToString(DateFormat);
+            var rows = _stockMovementRepository.GetDailyRows(connection, day);
+
+            var counts = _stockCountRepository.GetForDate(connection, day);
+            if (counts.Count == 0)
+                return rows;
+
+            var servings = _stockCountRepository.GetSmallestServings(connection);
+
+            foreach (var row in rows)
+            {
+                if (!counts.TryGetValue(row.StockItemId, out var count))
+                    continue;
+
+                // Compare with the previous count plus everything since (so each count is judged on its own
+                // stretch of days). The first count of an item has nothing earlier: it is compared with the books.
+                var previous = _stockCountRepository.GetLatestBefore(connection, row.StockItemId, day);
+                decimal expected = row.ClosingQuantity;
+                decimal sold = 0;
+
+                if (previous != null)
+                {
+                    var (net, soldSince) = _stockCountRepository.GetMovementsBetween(connection, row.StockItemId, previous.CountDate, day);
+                    expected = previous.TotalQuantity + net;
+                    sold = soldSince;
+                }
+
+                decimal? pricePerUnit = null, shotSize = null;
+                if (servings.TryGetValue(row.StockItemId, out var serving) && serving.Units > 0)
+                {
+                    pricePerUnit = serving.Price / serving.Units;
+                    shotSize = serving.Units;
+                }
+
+                var check = CountCheck.Evaluate(count.TotalQuantity, expected, previous != null, sold,
+                    row.PackSize, row.ExtraPerPack, row.TrackingUnit, pricePerUnit, shotSize);
+
+                row.CountedQuantity = count.TotalQuantity;
+                row.CountDifference = check.Difference;
+                row.CountCheckText = check.Text;
+                row.CountTone = check.Tone;
+            }
+
+            return rows;
+        }
+
+        // -----------------------------
+        // End-of-day stock count
+        // -----------------------------
+
+        public StockCount? GetCount(int stockItemId, DateTime date)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            return _stockCountRepository.Get(connection, stockItemId, date.ToString(DateFormat));
+        }
+
+        // Saves what was physically there at the end of the day: whole bottles / packs plus the open one.
+        // It never changes the stock itself; it is only compared with it. Counting again replaces the count.
+        public StockCount SaveCount(int stockItemId, DateTime date, decimal fullBottles, decimal openQuantity)
+        {
+            if (date.Date > DateTime.Today)
+                throw new Exception("A count cannot be for a future date.");
+
+            if (fullBottles < 0 || openQuantity < 0)
+                throw new Exception("Counts cannot be negative.");
+
+            if (fullBottles != Math.Floor(fullBottles))
+                throw new Exception("Full bottles / packs must be a whole number.");
+
+            var item = _stockItemRepository.GetById(stockItemId)
+                ?? throw new Exception("Stock item not found.");
+
+            if (fullBottles > 0 && !(item.PackSize is > 0))
+                throw new Exception("Set the bottle / pack size first, or enter the whole amount in the open field.");
+
+            var count = new StockCount
+            {
+                StockItemId = stockItemId,
+                CountDate = date.ToString(DateFormat),
+                FullBottles = fullBottles,
+                OpenQuantity = openQuantity,
+                TotalQuantity = fullBottles * (item.PackSize ?? 0) + openQuantity
+            };
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            _stockCountRepository.Save(connection, count);
+
+            return count;
+        }
+
+        public void DeleteCount(int stockItemId, DateTime date)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            _stockCountRepository.Delete(connection, stockItemId, date.ToString(DateFormat));
         }
 
         // -----------------------------
@@ -200,12 +299,21 @@ namespace POSGardenia.Services
 
         public List<StockItem> GetActiveStockItems() => _stockItemRepository.GetActive();
 
+        public StockItem? GetStockItem(int id) => _stockItemRepository.GetById(id);
+
         // Sets what one full bottle / pack of a main item holds (e.g. 750 ml per bottle, 20 units per pack).
         // The name is not chosen: ml -> "bottle", unit -> "pack". A null size removes it.
-        public void SetPack(int stockItemId, decimal? packSize)
+        // extraPerPack (liquor only): ml each bottle gives beyond its size, e.g. 25. Blank = none.
+        public void SetPack(int stockItemId, decimal? packSize, decimal? extraPerPack = null)
         {
             if (packSize.HasValue && packSize.Value <= 0)
                 throw new Exception("Bottle / pack size must be greater than zero (or leave it blank to remove it).");
+
+            if (extraPerPack.HasValue && extraPerPack.Value < 0)
+                throw new Exception("Extra per bottle cannot be negative.");
+
+            if (extraPerPack == 0)
+                extraPerPack = null;
 
             var item = _stockItemRepository.GetById(stockItemId)
                 ?? throw new Exception("Stock item not found.");
@@ -213,13 +321,19 @@ namespace POSGardenia.Services
             if (packSize.HasValue && PackFormatter.IsCountedInBottles(item.TrackingUnit))
                 throw new Exception("Items counted in bottles do not need a bottle / pack size.");
 
+            if (extraPerPack.HasValue && !string.Equals(item.TrackingUnit, "ml", StringComparison.OrdinalIgnoreCase))
+                throw new Exception("Extra per bottle only applies to liquor counted in ml.");
+
+            if (extraPerPack.HasValue && !packSize.HasValue)
+                throw new Exception("Set the bottle size before the extra per bottle.");
+
             string? name = packSize.HasValue ? PackFormatter.PackNameFor(item.TrackingUnit) : null;
 
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
             using var transaction = connection.BeginTransaction();
 
-            _stockItemRepository.UpdatePack(connection, transaction, stockItemId, name, packSize);
+            _stockItemRepository.UpdatePack(connection, transaction, stockItemId, name, packSize, extraPerPack);
 
             transaction.Commit();
         }

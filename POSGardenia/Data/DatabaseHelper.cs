@@ -306,6 +306,57 @@ namespace POSGardenia.Data
                     try { alterPack2.ExecuteNonQuery(); } catch { }
                 }
 
+                // Liquor only: ml a bottle gives beyond its size (e.g. 25). Blank = this liquor gives no extra.
+                // It is an allowance for the stock count, never a change to the bottle size.
+                using (var alterExtra = connection.CreateCommand())
+                {
+                    alterExtra.CommandText = "ALTER TABLE StockItems ADD COLUMN ExtraPerPack REAL NULL;";
+                    try { alterExtra.ExecuteNonQuery(); } catch { }
+                }
+
+                // Physical counts at the end of a day: whole bottles / packs plus the open one.
+                using (var createCounts = connection.CreateCommand())
+                {
+                    createCounts.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS StockCounts (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            StockItemId INTEGER NOT NULL,
+                            CountDate TEXT NOT NULL,
+                            FullBottles REAL NOT NULL DEFAULT 0,
+                            OpenQuantity REAL NOT NULL DEFAULT 0,
+                            TotalQuantity REAL NOT NULL DEFAULT 0,
+                            CreatedAt TEXT NOT NULL,
+                            FOREIGN KEY (StockItemId) REFERENCES StockItems(Id),
+                            UNIQUE (StockItemId, CountDate)
+                        );";
+                    createCounts.ExecuteNonQuery();
+                }
+
+                // A database that had the first version of this table (open amount called OpenMl, no total)
+                // gets the new columns, and any old counts are converted once.
+                bool addedOpenQuantity = false;
+                using (var alterCount1 = connection.CreateCommand())
+                {
+                    alterCount1.CommandText = "ALTER TABLE StockCounts ADD COLUMN OpenQuantity REAL NOT NULL DEFAULT 0;";
+                    try { alterCount1.ExecuteNonQuery(); addedOpenQuantity = true; } catch { }
+                }
+
+                using (var alterCount2 = connection.CreateCommand())
+                {
+                    alterCount2.CommandText = "ALTER TABLE StockCounts ADD COLUMN TotalQuantity REAL NOT NULL DEFAULT 0;";
+                    try { alterCount2.ExecuteNonQuery(); } catch { }
+                }
+
+                if (addedOpenQuantity)
+                {
+                    using var convertCounts = connection.CreateCommand();
+                    convertCounts.CommandText = @"
+                        UPDATE StockCounts SET
+                            OpenQuantity = OpenMl,
+                            TotalQuantity = FullBottles * IFNULL((SELECT PackSize FROM StockItems si WHERE si.Id = StockCounts.StockItemId), 0) + OpenMl;";
+                    try { convertCounts.ExecuteNonQuery(); } catch { }
+                }
+
                 // Enforce name uniqueness among non-deleted rows only (partial index), so a
                 // soft-deleted category/product never blocks reusing its name for a new one.
                 // Wrapped/swallowed like the ALTER TABLE calls above: if existing data still

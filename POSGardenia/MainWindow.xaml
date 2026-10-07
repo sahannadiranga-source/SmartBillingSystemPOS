@@ -597,61 +597,7 @@
                                         <DataGrid x:Name="DailyStockDataGrid" MinHeight="220" MaxHeight="420"/>
                                     </Border>
 
-                                    <Border Style="{StaticResource CardStyle}">
-                                        <StackPanel>
-                                            <TextBlock Text="Add stock entry (for the date above)" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <TextBlock x:Name="StockEntryHintTextBlock" Margin="0,0,0,10"
-                                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-                                            <WrapPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Item" FontSize="14"/>
-                                                    <ComboBox x:Name="StockEntryItemComboBox" Width="220" DisplayMemberPath="Name"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Entry" FontSize="14"/>
-                                                    <ComboBox x:Name="StockEntryTypeComboBox" Width="170"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock x:Name="StockEntryQuantityLabel" Text="Quantity" FontSize="14"/>
-                                                    <TextBox x:Name="StockEntryQuantityTextBox" Tag="signed" Width="100"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Note (optional)" FontSize="14"/>
-                                                    <TextBox x:Name="StockEntryNoteTextBox" Width="220"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
-                                                    <Button Content="Add Entry" Style="{StaticResource PrimaryButtonStyle}"
-                                                            Click="AddStockEntry_Click"/>
-                                                </StackPanel>
-                                            </WrapPanel>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Style="{StaticResource CardStyle}">
-                                        <StackPanel>
-                                            <TextBlock Text="Bottle or pack size (for the item selected above)" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <TextBlock x:Name="PackItemTextBlock" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                                            <WrapPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Bottle or pack" FontSize="14"/>
-                                                    <TextBox x:Name="PackNameTextBox" Width="150" IsReadOnly="True" Focusable="False" IsTabStop="False" Background="#FFF1F5F9"
-                                                             ToolTip="Set automatically from what the item is counted in: ml = bottle, unit = pack."/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Per bottle/pack size" FontSize="14"/>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBox x:Name="PackSizeTextBox" Tag="decimal" Width="150"
-                                                                 ToolTip="How much of the stock unit is in one full bottle / pack: 750 for a 750 ml bottle, 20 for a pack of 20 cigarettes."/>
-                                                        <TextBlock x:Name="PackUnitTextBlock" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
-                                                    <Button x:Name="SavePackSizeButton" Content="Save Size" Style="{StaticResource PrimaryButtonStyle}"
-                                                            Click="SavePackSize_Click"/>
-                                                </StackPanel>
-                                            </WrapPanel>
-                                        </StackPanel>
-                                    </Border>
+                       
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
@@ -666,6 +612,33 @@
                                             <DataGrid x:Name="StockItemsDataGrid" MinHeight="200" MaxHeight="420"/>
                                         </StackPanel>
                                     </Border>
+
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="Add stock (received today)" FontSize="18" FontWeight="Bold" Margin="0,0,0,8"/>
+                                            <WrapPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Item" FontSize="14"/>
+                                                    <ComboBox x:Name="StockAddItemComboBox" Width="260" DisplayMemberPath="Name"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock x:Name="StockAddQuantityLabel" Text="Quantity" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddQuantityTextBox" Tag="decimal" Width="120"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Note (optional)" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddNoteTextBox" Width="220"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
+                                                    <Button Content="Add Stock" Style="{StaticResource PrimaryButtonStyle}"
+                                                            Click="AddStock_Click"/>
+                                                </StackPanel>
+                                            </WrapPanel>
+                                            <TextBlock x:Name="StockAddResultTextBlock" FontSize="16" FontWeight="SemiBold" Foreground="#FF166534"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                   
 
                                 </StackPanel>
                             </ScrollViewer>
@@ -1082,7 +1055,7 @@
                                         </WrapPanel>
 
                                         <!-- Stock: no Text/TextChanged handlers are wired in XAML; they are attached in code
-                                             after InitializeComponent. Quantities are added on Inventory > Daily Stock. -->
+                                             after InitializeComponent. Quantities are added on Inventory > Stock Items. -->
                                         <TextBlock FontWeight="SemiBold" Margin="0,0,0,6" Text="Tick 'Track stock' to add this product to inventory."/>
                                         <WrapPanel x:Name="TrackStockPanel">
                                             <CheckBox x:Name="TrackStockCheckBox" Content="Track stock" VerticalAlignment="Center" Margin="0,0,16,6"
@@ -1102,8 +1075,19 @@
                                                 <TextBox x:Name="StockUsedPerSaleTextBox" Tag="decimal" Width="150"
                                                          ToolTip="How much of the main item one sale uses, in the stock unit (e.g. 750 for a 750 ml bottle, 50 for a 50 ml shot, 1 for a bottle counted in bottles)."/>
                                             </StackPanel>
+                                            <StackPanel Margin="0,0,12,6">
+                                                <TextBlock Text="Per bottle/pack size" FontSize="14"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBox x:Name="PackSizeTextBox" Tag="decimal" Width="150"
+                                                             ToolTip="Optional: how much is in one full bottle / pack, e.g. 750 for a 750 ml bottle, 20 for a pack of 20. Not used for beer."/>
+                                                    <TextBlock x:Name="PackUnitTextBlock" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="{StaticResource MutedBrush}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            
+                                            
                                         </WrapPanel>
-                                    </StackPanel>
+
+</StackPanel>
 
                                     <Grid Grid.Row="2">
                                         <Grid.RowDefinitions>

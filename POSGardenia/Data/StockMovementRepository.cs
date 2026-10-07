@@ -95,7 +95,8 @@ namespace POSGardenia.Data
                             WHERE m.StockItemId = si.Id AND m.MovementDate = @date
                               AND m.MovementType IN ('Sale', 'SaleReversal')), 0) AS SalesValue,
                     si.PackName,
-                    si.PackSize
+                    si.PackSize,
+                    si.ExtraPerPack
                 FROM StockItems si
                 WHERE si.IsDeleted = 0
                   AND (si.IsActive = 1
@@ -117,7 +118,8 @@ namespace POSGardenia.Data
                     AdjustedQuantity = reader.GetDecimal(6),
                     SalesValue = reader.GetDecimal(7),
                     PackName = reader.IsDBNull(8) ? null : reader.GetString(8),
-                    PackSize = reader.IsDBNull(9) ? null : reader.GetDecimal(9)
+                    PackSize = reader.IsDBNull(9) ? null : reader.GetDecimal(9),
+                    ExtraPerPack = reader.IsDBNull(10) ? null : reader.GetDecimal(10)
                 });
             }
 

@@ -16,6 +16,9 @@ namespace POSGardenia.Models
         public string? PackName { get; set; }
         public decimal? PackSize { get; set; }
 
+        // Liquor only: ml each bottle gives beyond its size (e.g. 25). Blank = none. Used by the stock count.
+        public decimal? ExtraPerPack { get; set; }
+
         public override string ToString() => Name;
     }
 }

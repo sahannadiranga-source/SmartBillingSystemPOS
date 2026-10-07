@@ -16,17 +16,11 @@ namespace POSGardenia
     {
         private readonly StockService _stockService = new();
 
-        private const string EntryReceived = "Received";
-        private const string EntryAdjust = "Adjust (+ or -)";
-        private const string EntryWastage = "Wastage";
 
         // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
         private void WireInventoryControls()
         {
             DailyStockDatePicker.SelectedDate = DateTime.Today;
-
-            StockEntryTypeComboBox.ItemsSource = new[] { EntryReceived, EntryAdjust, EntryWastage };
-            StockEntryTypeComboBox.SelectedIndex = 0;
 
             foreach (var grid in new[] { DailyStockDataGrid, StockItemsDataGrid })
                 grid.AutoGeneratingColumn += StockGrid_AutoGeneratingColumn;
@@ -36,15 +30,13 @@ namespace POSGardenia
             ItemSalesReportDataGrid.AutoGeneratingColumn += ItemSalesGrid_AutoGeneratingColumn;
 
             DailyStockDataGrid.LoadingRow += DailyStockDataGrid_LoadingRow;
-            DailyStockDataGrid.SelectionChanged += (_, _) =>
-            {
-                if (DailyStockDataGrid.SelectedItem is DailyStockDisplay row)
-                    SelectEntryItem(row.StockItemId);
-            };
-
             DailyStockDatePicker.SelectedDateChanged += (_, _) => RefreshDailyStock();
-            StockEntryItemComboBox.SelectionChanged += (_, _) => OnEntryItemChanged();
-            StockEntryTypeComboBox.SelectionChanged += (_, _) => UpdateEntryHint();
+            StockAddItemComboBox.SelectionChanged += (_, _) => OnAddStockItemChanged();
+            StockItemsDataGrid.SelectionChanged += (_, _) =>
+            {
+                if (StockItemsDataGrid.SelectedItem is StockItemDisplay row && StockAddItemComboBox.ItemsSource is IEnumerable<StockItem> items)
+                    StockAddItemComboBox.SelectedItem = items.FirstOrDefault(i => i.Id == row.Id);
+            };
 
             MainTabControl.SelectionChanged += (s, e) =>
             {
@@ -52,8 +44,6 @@ namespace POSGardenia
                 if (ReferenceEquals(e.OriginalSource, MainTabControl) && InventoryTabItem.IsSelected)
                     RefreshInventory();
             };
-
-            UpdateEntryHint();
         }
 
         private static void ProductsGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
@@ -108,8 +98,8 @@ namespace POSGardenia
 
             e.Column.Header = e.PropertyName switch
             {
-                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left (Bottles / Packs)" : "Bottles / Packs",
-                nameof(DailyStockDisplay.SoldInPacks) => "Sold (Bottles / Packs)",
+                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left" : "Bottles / Packs",
+                nameof(DailyStockDisplay.SoldInPacks) => "Sold",
                 nameof(DailyStockDisplay.SalesValue) => "Sales Value",
                 _ => Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ")
             };
@@ -118,14 +108,21 @@ namespace POSGardenia
                 textColumn.Binding is Binding binding &&
                 (e.PropertyType == typeof(decimal) || e.PropertyType == typeof(decimal?)))
             {
-                binding.StringFormat = e.PropertyName == nameof(DailyStockDisplay.SalesValue) ? "#,0.00" : "0.##";
+                binding.StringFormat = e.PropertyName switch
+                {
+                    nameof(DailyStockDisplay.SalesValue) => "#,0.00",
+                    nameof(DailyStockDisplay.Difference) => "+0.##;-0.##;0",
+                    _ => "0.##"
+                };
             }
         }
 
         private static void DailyStockDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
         {
-            if (e.Row.Item is DailyStockDisplay row && row.IsNegative)
+            if (e.Row.Item is DailyStockDisplay row && (row.IsNegative || row.CountTone == "red"))
                 e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFE, 0xE2, 0xE2));
+            else if (e.Row.Item is DailyStockDisplay checkRow && checkRow.CountTone == "amber")
+                e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFE, 0xF9, 0xC3));
             else
                 e.Row.ClearValue(DataGridRow.BackgroundProperty);
         }
@@ -200,151 +197,40 @@ namespace POSGardenia
             }
         }
 
-        // -----------------------------
-        // Stock entries (Received / Adjust / Wastage)
-        // -----------------------------
-
-        private void UpdateEntryHint()
+        // Stock Items tab: the quantity label follows the unit of the chosen item.
+        private void OnAddStockItemChanged()
         {
-            if (StockEntryHintTextBlock == null)
-                return;
-
-            StockEntryHintTextBlock.Text = StockEntryTypeComboBox.SelectedItem as string switch
-            {
-                EntryReceived => "Received: stock delivered or bought. Sales are taken from bills automatically - do not enter them here.",
-                EntryAdjust => "Adjust: correct the count. Use a plus to add stock, a minus (e.g. -50) to remove it.",
-                EntryWastage => "Wastage: breakage, spillage or free servings. Enter a positive amount; it is taken out of stock.",
-                _ => ""
-            };
+            var item = StockAddItemComboBox.SelectedItem as StockItem;
+            StockAddQuantityLabel.Text = item == null ? "Quantity" : $"Quantity ({item.TrackingUnit})";
         }
 
-        private void SelectEntryItem(int stockItemId)
-        {
-            if (StockEntryItemComboBox.ItemsSource is IEnumerable<StockItem> items)
-                StockEntryItemComboBox.SelectedItem = items.FirstOrDefault(i => i.Id == stockItemId);
-        }
-
-        // The quantity is always in the item's own unit (ml / bottle / unit); say which one.
-        private void OnEntryItemChanged()
-        {
-            var item = StockEntryItemComboBox.SelectedItem as StockItem;
-            StockEntryQuantityLabel.Text = item == null ? "Quantity" : $"Quantity ({item.TrackingUnit})";
-            LoadPackEditor(item);
-        }
-
-        // -----------------------------
-        // Bottle / pack size of the selected item
-        // -----------------------------
-
-        private void LoadPackEditor(StockItem? item)
-        {
-            if (PackItemTextBlock == null)
-                return;
-
-            bool needsPack = item != null && !PackFormatter.IsCountedInBottles(item.TrackingUnit);
-            PackSizeTextBox.IsEnabled = needsPack;
-            SavePackSizeButton.IsEnabled = needsPack;
-
-            if (item == null)
-            {
-                PackItemTextBlock.Text = "Select an item in the list above (or in Item) to set its bottle / pack size.";
-                PackNameTextBox.Text = "";
-                PackSizeTextBox.Text = "";
-                PackUnitTextBlock.Text = "";
-                return;
-            }
-
-            PackNameTextBox.Text = PackFormatter.PackNameFor(item.TrackingUnit);
-            PackUnitTextBlock.Text = item.TrackingUnit;
-
-            if (!needsPack)
-            {
-                PackItemTextBlock.Text = $"{item.Name} (counted in bottles) - no bottle / pack size is needed.";
-                PackSizeTextBox.Text = "";
-                return;
-            }
-
-            PackItemTextBlock.Text = $"{item.Name} (counted in {item.TrackingUnit})";
-            PackSizeTextBox.Text = item.PackSize?.ToString("0.##") ?? "";
-        }
-
-        private void SavePackSize_Click(object sender, RoutedEventArgs e)
+        // Stock only comes in as "received", always dated today (the sheet for any day can still be viewed on Daily Stock).
+        private void AddStock_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                if (StockEntryItemComboBox.SelectedItem is not StockItem item)
-                {
-                    MessageBox.Show("Select an item first.");
-                    return;
-                }
-
-                decimal? size = null;
-                if (!string.IsNullOrWhiteSpace(PackSizeTextBox.Text))
-                {
-                    if (!decimal.TryParse(PackSizeTextBox.Text.Trim(), out decimal parsed) || parsed <= 0)
-                    {
-                        MessageBox.Show("Per bottle/pack size: enter a number greater than zero, or leave it blank to remove it.");
-                        return;
-                    }
-
-                    size = parsed;
-                }
-
-                _stockService.SetPack(item.Id, size);
-
-                RefreshStockItems();      // reloads the item list (and this editor) with the saved size
-                RefreshDailyStock();
-
-                StockEntryHintTextBlock.Text = size.HasValue
-                    ? $"Saved: 1 {PackFormatter.PackNameFor(item.TrackingUnit)} = {size:0.##} {item.TrackingUnit} for {item.Name}."
-                    : $"Bottle / pack size removed for {item.Name}.";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-        }
-
-        private void AddStockEntry_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (StockEntryItemComboBox.SelectedItem is not StockItem item)
+                if (StockAddItemComboBox.SelectedItem is not StockItem item)
                 {
                     MessageBox.Show("Select an item.");
                     return;
                 }
 
-                if (!decimal.TryParse(StockEntryQuantityTextBox.Text?.Trim(), out decimal quantity) || quantity == 0)
+                if (!decimal.TryParse(StockAddQuantityTextBox.Text?.Trim(), out decimal quantity) || quantity <= 0)
                 {
-                    MessageBox.Show("Enter a quantity (not zero).");
+                    MessageBox.Show("Enter a quantity greater than zero.");
                     return;
                 }
 
-                decimal total = quantity;   // always in the item's own unit
-                string? note = string.IsNullOrWhiteSpace(StockEntryNoteTextBox.Text) ? null : StockEntryNoteTextBox.Text.Trim();
-                var date = SelectedStockDate;
-                string type = StockEntryTypeComboBox.SelectedItem as string ?? EntryReceived;
+                string? note = string.IsNullOrWhiteSpace(StockAddNoteTextBox.Text) ? null : StockAddNoteTextBox.Text.Trim();
 
-                switch (type)
-                {
-                    case EntryReceived:
-                        _stockService.ReceiveStock(item.Id, total, note, date);
-                        break;
-                    case EntryAdjust:
-                        _stockService.AdjustStock(item.Id, total, note, date);
-                        break;
-                    case EntryWastage:
-                        _stockService.RecordWastage(item.Id, total, note, date);
-                        break;
-                }
+                _stockService.ReceiveStock(item.Id, quantity, note, DateTime.Today);
 
-                StockEntryQuantityTextBox.Clear();
-                StockEntryNoteTextBox.Clear();
-                RefreshDailyStock();
+                StockAddQuantityTextBox.Clear();
+                StockAddNoteTextBox.Clear();
                 RefreshStockItems();
+                RefreshDailyStock();
 
-                StockEntryHintTextBlock.Text = $"Saved: {type} {total:+0.##;-0.##} {item.TrackingUnit} for {item.Name} on {date:yyyy-MM-dd}.";
+                StockAddResultTextBlock.Text = $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}.";
             }
             catch (Exception ex)
             {
@@ -366,13 +252,13 @@ namespace POSGardenia
             if (selectedId.HasValue)
                 StockItemsDataGrid.SelectedItem = items.FirstOrDefault(i => i.Id == selectedId.Value);
 
-            // Entry item list: active items only; keep the current choice.
-            int? entryId = (StockEntryItemComboBox.SelectedItem as StockItem)?.Id;
+            // Active items only; keep the current choice, and never leave the cards blank.
             var active = _stockService.GetActiveStockItems();
-            StockEntryItemComboBox.ItemsSource = null;
-            StockEntryItemComboBox.ItemsSource = active;
-            if (entryId.HasValue)
-                SelectEntryItem(entryId.Value);
+            int? addId = (StockAddItemComboBox.SelectedItem as StockItem)?.Id;
+            StockAddItemComboBox.ItemsSource = null;
+            StockAddItemComboBox.ItemsSource = active;
+            StockAddItemComboBox.SelectedItem =
+                (addId.HasValue ? active.FirstOrDefault(i => i.Id == addId.Value) : null) ?? active.FirstOrDefault();
         }
 
     }
