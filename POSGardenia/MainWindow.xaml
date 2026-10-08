@@ -213,8 +213,10 @@
 
                 <Grid Margin="12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="0.9*"/>
-                        <ColumnDefinition Width="2.0*"/>
+                        <!-- Categories and Products stop growing once their buttons fit (3 products across);
+                             all the spare width goes to the cart. -->
+                        <ColumnDefinition Width="0.9*" MaxWidth="360"/>
+                        <ColumnDefinition Width="2.0*" MaxWidth="660"/>
                         <ColumnDefinition Width="1.7*"/>
                     </Grid.ColumnDefinitions>
 
@@ -355,15 +357,22 @@
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,8"/>
 
-                            <WrapPanel Grid.Row="6" Margin="0,0,0,12">
-                                <TextBlock Text="Table:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                <ComboBox x:Name="PosTableComboBox"
-                                          Width="180"
+                            <!-- The pickers stretch to the cart's width; the button keeps its size. -->
+                            <Grid Grid.Row="6" Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Table:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                <ComboBox x:Name="PosTableComboBox" Grid.Column="1"
+                                          MinWidth="140"
                                           DisplayMemberPath="TableName"/>
-                                <Button Content="Open Table Bill"
+                                <Button Grid.Column="2" Content="Open Table Bill"
                                         Style="{StaticResource PrimaryButtonStyle}"
+                                        Margin="12,0,0,0"
                                         Click="CreateNewTableBillFromCart_Click"/>
-                            </WrapPanel>
+                            </Grid>
 
                             <StackPanel Grid.Row="7" Margin="0,0,0,8">
                                 <TextBlock Text="Existing Open Bill"
@@ -371,16 +380,22 @@
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
 
-                                <WrapPanel Margin="0,0,0,12">
-                                    <TextBlock Text="Open bill:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <ComboBox x:Name="PosExistingBillComboBox"
-                                              Width="320"
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Open bill:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <ComboBox x:Name="PosExistingBillComboBox" Grid.Column="1"
+                                              MinWidth="140"
                                               DisplayMemberPath="DisplayText"
                                               SelectionChanged="PosExistingBillComboBox_SelectionChanged"/>
-                                    <Button Content="Add To Existing Bill"
+                                    <Button Grid.Column="2" Content="Add To Existing Bill"
                                             Style="{StaticResource SecondaryButtonStyle}"
+                                            Margin="12,0,0,0"
                                             Click="AddCartToExistingBill_Click"/>
-                                </WrapPanel>
+                                </Grid>
 
                             </StackPanel>
                         </Grid>
@@ -393,13 +408,20 @@
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
 
-                                <TextBlock x:Name="PosPaymentSummaryTextBlock"
-                                           Text="Due 0.00"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource MutedBrush}"
-                                           Margin="0,0,0,8"
-                                           TextWrapping="Wrap"/>
+                                <!-- Due in orange, the same size as the green Change box below it. -->
+                                <Border Background="#FFFFF7ED" BorderBrush="#FFEA580C" BorderThickness="2"
+                                        CornerRadius="10" Padding="12,6" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock x:Name="PosDueTextBlock" Text="Due: 0.00"
+                                                   FontSize="26" FontWeight="Bold" Foreground="#FFC2410C"/>
+                                        <TextBlock x:Name="PosPaymentSummaryTextBlock"
+                                                   Visibility="Collapsed"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#FF9A3412"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
 
                                 <Border x:Name="PosChangeBorder" Visibility="Collapsed"
                                         Background="#FFEAF7EF" BorderBrush="#FF16A34A" BorderThickness="2"
@@ -408,22 +430,30 @@
                                                FontSize="26" FontWeight="Bold" Foreground="#FF166534"/>
                                 </Border>
 
-                                <WrapPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
-                                        <TextBlock Text="Method:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <ComboBox x:Name="PosQuickPaymentMethodComboBox"
-                                                Width="150"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
-                                        <TextBlock Text="Received:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <TextBox x:Name="PosPayAmountTextBox" Tag="decimal"
-                                             Width="140"
+                                <!-- Method and Received share the cart's width; Pay Now spans it underneath. -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Method:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <ComboBox x:Name="PosQuickPaymentMethodComboBox" Grid.Row="0" Grid.Column="1" MinWidth="90" Margin="0,0,16,0"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Received:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBox x:Name="PosPayAmountTextBox" Grid.Row="0" Grid.Column="3" Tag="decimal" MinWidth="90"
                                              ToolTip="Cash handed over by the customer (starts at the amount due)"/>
-                                    </StackPanel>
-                                    <Button Content="Pay Now"
+
+                                    <Button Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4" Content="Pay Now"
                                             Style="{StaticResource PrimaryButtonStyle}"
+                                            Margin="0,12,0,0" Height="60" FontSize="18"
                                             Click="PayNowFromPos_Click"/>
-                                </WrapPanel>
+                                </Grid>
                         </StackPanel>
                     </Grid>
                     </Border>
@@ -625,6 +655,11 @@
                                                 <StackPanel Margin="0,0,10,6">
                                                     <TextBlock x:Name="StockAddQuantityLabel" Text="Quantity" FontSize="14"/>
                                                     <TextBox x:Name="StockAddQuantityTextBox" Tag="decimal" Width="120"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Purchase amount (optional)" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddCostTextBox" Tag="decimal" Width="170"
+                                                             ToolTip="What you paid. It is saved as today's expense (not taken off Net Sales)."/>
                                                 </StackPanel>
                                                 <StackPanel Margin="0,0,10,6">
                                                     <TextBlock Text="Note (optional)" FontSize="14"/>
@@ -925,10 +960,16 @@
 
 									<StackPanel Grid.Row="2" Margin="0,0,0,10">
 										<TextBlock x:Name="TotalExpenseTextBlock"
-												   Text="Total Expenses: 0.00"
+												   Text="Expenses: 0.00"
 												   FontSize="16"
 												   FontWeight="SemiBold"
-												   Margin="0,0,0,4"/>
+												   Margin="0,0,0,2"/>
+										<TextBlock x:Name="StockPurchaseTotalTextBlock"
+												   Text="Stock purchases: 0.00"
+												   FontSize="16"
+												   FontWeight="SemiBold"
+												   Foreground="#FF075985"
+												   Margin="0,0,0,8"/>
 
 										<WrapPanel>
 											<Button Content="Edit Selected"

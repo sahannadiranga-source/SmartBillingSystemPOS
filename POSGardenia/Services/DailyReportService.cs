@@ -80,12 +80,15 @@ namespace POSGardenia.Services
 
             decimal sales = _paymentRepository.GetSalesTotalBySingleDate(dateText);
             int paidBills = _paymentRepository.GetPaidBillCountBySingleDate(dateText);
-            decimal expenses = _expenseRepository.GetTotalByDate(dateText);
-            decimal net = sales - expenses;
+            decimal expenses = _expenseRepository.GetDeductibleTotalByDate(dateText);             // normal expenses
+            decimal stockPurchases = _expenseRepository.GetStockPurchaseTotalByDate(dateText);   // money spent buying stock
+            decimal net = sales - expenses;                                                       // stock purchases are not taken off
 
             var paymentBreakdown = _paymentRepository.GetPaymentBreakdownBySingleDate(dateText) ?? new();
             var soldItems = _billItemRepository.GetItemSalesReportBySingleDate(dateText) ?? new();
-            var expenseList = _expenseRepository.GetByDate(dateText) ?? new();
+            var allExpenses = _expenseRepository.GetByDate(dateText) ?? new();
+            var expenseList = allExpenses.Where(e => !e.IsStockPurchase).ToList();
+            var purchaseList = allExpenses.Where(e => e.IsStockPurchase).ToList();
 
             var pdf = new SimplePdf();
             double y = 40;
@@ -99,17 +102,23 @@ namespace POSGardenia.Services
             pdf.Line(Left, y, Right, 1.2, Accent);
             y += 16;
 
-            // ---- the four totals
-            string[] labels = { "Total Sales", "Paid Bills", "Total Expenses", "Net Sale" };
-            string[] values = { Money(sales), paidBills.ToString(CultureInfo.InvariantCulture), Money(expenses), Money(net) };
-            double gap = 10;
-            double cardWidth = (Right - Left - gap * 3) / 4;
-            for (int i = 0; i < 4; i++)
+            // ---- the totals: expenses and stock purchases side by side, apart
+            string[] labels = { "Total Sales", "Paid Bills", "Expenses", "Stock Purchases", "Net Sale" };
+            string[] values = { Money(sales), paidBills.ToString(CultureInfo.InvariantCulture), Money(expenses), Money(stockPurchases), Money(net) };
+            double gap = 8;
+            double cardWidth = (Right - Left - gap * 4) / 5;
+            for (int i = 0; i < 5; i++)
             {
                 double x = Left + i * (cardWidth + gap);
                 pdf.Box(x, y, cardWidth, 50, CardFill);
-                pdf.Text(x + 10, y + 9, labels[i], 9, color: Muted);
-                pdf.Text(x + 10, y + 26, values[i], 15, bold: true, color: i == 3 && net < 0 ? "B91C1C" : Ink);
+                pdf.Text(x + 8, y + 9, labels[i], 9, color: Muted);
+
+                // big numbers shrink a little so they always fit inside the card
+                double size = 15;
+                while (size > 8 && SimplePdf.Measure(values[i], size, bold: true) > cardWidth - 16)
+                    size -= 0.5;
+
+                pdf.Text(x + 8, y + 26 + (15 - size) / 2, values[i], size, bold: true, color: i == 4 && net < 0 ? "B91C1C" : Ink);
             }
             y += 50 + 22;
 
@@ -160,6 +169,22 @@ namespace POSGardenia.Services
                 .ToList();
             y = Table(pdf, y, "Expenses", expenseColumns, expenseRows, "No expenses.",
                 expenseList.Count > 0 ? new[] { "Total", Money(expenseList.Sum(e => e.Amount)) } : null);
+
+            // ---- stock purchases: their own table (only on days when stock was bought)
+            if (purchaseList.Count > 0)
+            {
+                var purchaseRows = purchaseList
+                    .Select(e => new[] { StripPurchasePrefix(e.Description ?? ""), Money(e.Amount) })
+                    .ToList();
+                y = Table(pdf, y, "Stock Purchases", expenseColumns, purchaseRows, "No stock purchases.",
+                    new[] { "Total", Money(purchaseList.Sum(e => e.Amount)) });
+
+                if (y + 8 > Bottom)
+                    y = NextPage(pdf);
+
+                pdf.Text(Left, y - 12, "Stock purchases are not deducted from Net Sale.", 9, color: Muted);
+                y += 8;
+            }
 
             // ---- footer on every page
             string generated = $"Generated {DateTime.Now:yyyy-MM-dd HH:mm}";
@@ -250,6 +275,15 @@ namespace POSGardenia.Services
                 pdf.Text(textX, y + 5, text, 10, bold, col.Align, Ink);
                 x += col.Width;
             }
+        }
+
+        // The table is already titled "Stock Purchases", so the saved "Stock purchase: " wording is dropped.
+        private static string StripPurchasePrefix(string description)
+        {
+            const string prefix = "Stock purchase:";
+            return description.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? description.Substring(prefix.Length).Trim()
+                : description;
         }
 
         // "2 bottle" and "2 bottles" say the same thing

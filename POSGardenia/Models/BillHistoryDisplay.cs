@@ -8,6 +8,8 @@ namespace POSGardenia.Models
         public string VisibleBillNumber { get; set; } = "";
         public string BillType { get; set; } = "";
         public string TableName { get; set; } = "";
+        // The plain bill status (OPEN / PAID / VOID), used by the code; the table shows PaymentStatus as "Status".
+        [Browsable(false)]
         public string Status { get; set; } = "";
         public string PaymentStatus { get; set; } = "";
         public string CreatedAt { get; set; } = "";

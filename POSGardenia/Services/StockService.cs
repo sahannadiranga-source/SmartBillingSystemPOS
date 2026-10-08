@@ -15,6 +15,7 @@ namespace POSGardenia.Services
 
         private readonly StockItemRepository _stockItemRepository = new();
         private readonly StockMovementRepository _stockMovementRepository = new();
+        private readonly ExpenseRepository _expenseRepository = new();
         private readonly StockOpeningCountRepository _openingCountRepository = new();
 
         // -----------------------------
@@ -135,12 +136,54 @@ namespace POSGardenia.Services
             return id;
         }
 
-        public void ReceiveStock(int stockItemId, decimal quantity, string? note, DateTime date)
+        // purchaseAmount (optional): what was paid for it. It is saved with the stock, in one step, as that day's
+        // expense marked "stock purchase": listed with the expenses and in the daily report, but not taken off Net Sales.
+        public void ReceiveStock(int stockItemId, decimal quantity, string? note, DateTime date, decimal? purchaseAmount = null)
         {
             if (quantity <= 0)
                 throw new Exception("Quantity received must be greater than zero.");
 
-            WriteManualMovement(stockItemId, StockMovementTypes.Restock, quantity, note, date);
+            if (purchaseAmount.HasValue && purchaseAmount.Value <= 0)
+                throw new Exception("Purchase amount must be greater than zero (or leave it blank).");
+
+            if (!purchaseAmount.HasValue)
+            {
+                WriteManualMovement(stockItemId, StockMovementTypes.Restock, quantity, note, date);
+                return;
+            }
+
+            var item = _stockItemRepository.GetById(stockItemId)
+                ?? throw new Exception("Stock item not found.");
+
+            string dateText = date.ToString(DateFormat);
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            _stockMovementRepository.Insert(connection, transaction, new StockMovement
+            {
+                StockItemId = stockItemId,
+                MovementDate = dateText,
+                MovementType = StockMovementTypes.Restock,
+                QuantityChange = quantity,
+                Note = note
+            });
+
+            string description = $"Stock purchase: {item.Name} {quantity:0.##} {item.TrackingUnit}";
+            if (!string.IsNullOrWhiteSpace(note))
+                description += $" - {note.Trim()}";
+
+            _expenseRepository.Add(connection, transaction, new Expense
+            {
+                ExpenseDate = dateText,
+                Description = description,
+                Amount = purchaseAmount.Value,
+                CreatedAt = DateTime.Now,
+                IsStockPurchase = true
+            });
+
+            transaction.Commit();
         }
 
         // Signed: positive adds stock, negative removes it (count correction).

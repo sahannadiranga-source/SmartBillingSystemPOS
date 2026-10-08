@@ -140,7 +140,9 @@ namespace POSGardenia.Data
                        IFNULL((SELECT SUM(m.QuantityChange) FROM StockMovements m
                                WHERE m.StockItemId = si.Id AND m.MovementDate = @today
                                  AND m.MovementType IN ('Restock', 'InitialStock')), 0),
-                       oc.CountedQuantity
+                       oc.CountedQuantity,
+                       IFNULL((SELECT SUM(m.QuantityChange) FROM StockMovements m
+                               WHERE m.StockItemId = si.Id AND m.MovementDate < @today), 0)
                 FROM StockItems si
                 LEFT JOIN StockOpeningCounts oc ON oc.StockItemId = si.Id AND oc.CountDate = @today
                 WHERE si.IsDeleted = 0
@@ -160,7 +162,8 @@ namespace POSGardenia.Data
                     PackName = reader.IsDBNull(5) ? null : reader.GetString(5),
                     PackSize = reader.IsDBNull(6) ? null : reader.GetDecimal(6),
                     ReceivedToday = reader.GetDecimal(7),
-                    Counted = reader.IsDBNull(8) ? null : reader.GetDecimal(8)
+                    Counted = reader.IsDBNull(8) ? null : reader.GetDecimal(8),
+                    PreviousClose = reader.GetDecimal(9)
                 });
             }
 

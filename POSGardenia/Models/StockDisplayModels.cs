@@ -8,7 +8,7 @@ namespace POSGardenia.Models
     public class StockItemDisplay
     {
         // Column order = property order of the visible ones:
-        // Unit, Linked Products, Name, In Stock, Bottles / Packs, Counted, Counted, Received Today.
+        // Unit, Linked Products, Name, In Stock, In Stock, System Count, Counted, Counted, Received Today.
         [Browsable(false)]
         public int Id { get; set; }
         public string Unit { get; set; } = "";
@@ -23,6 +23,16 @@ namespace POSGardenia.Models
 
         // In stock, counted in full bottles / packs (blank when the main item has no full-pack size).
         public string InPacks => PackFormatter.Describe(InStock, Unit, PackName, PackSize);
+
+        // What the books closed with yesterday (everything before today), in the item's own unit.
+        [Browsable(false)]
+        public decimal PreviousClose { get; set; }
+
+        // The same, as people count it: "10 bottles + 720 ml". Items with no bottle / pack size show the plain
+        // amount ("12 bottles", "3300 ml") so the column is never empty.
+        public string SystemCount => PackSize is > 0 && !PackFormatter.IsCountedInBottles(Unit)
+            ? PackFormatter.Describe(PreviousClose, Unit, PackName, PackSize)
+            : $"{PreviousClose.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} {PackFormatter.Plural(Unit, PreviousClose)}";
 
         // Counted by hand for today (type it in the table; blank = not counted). It becomes today's Opening.
         public decimal? Counted { get; set; }
@@ -103,7 +113,7 @@ namespace POSGardenia.Models
 
             if (bottles < 0 || loose < 0)
             {
-                error = "Counted: enter 0 or more.";
+                error = "Morning Manual Count: enter 0 or more.";
                 return false;
             }
 
@@ -121,7 +131,7 @@ namespace POSGardenia.Models
 
             if (bottles != Math.Floor(bottles))
             {
-                error = $"Counted: the bottles / packs must be a whole number (put the rest in the {Unit} box).";
+                error = $"Morning Manual Count: the bottles / packs must be a whole number (put the rest in the {Unit} box).";
                 return false;
             }
 

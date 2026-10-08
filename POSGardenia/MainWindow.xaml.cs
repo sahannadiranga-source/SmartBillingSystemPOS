@@ -99,6 +99,33 @@ namespace POSGardenia
             {
                 CategoryButtonsPanel.Children.Add(CreateCategoryButton(category.Name, category.Id));
             }
+
+            // a category that was deactivated or deleted can no longer be the picked one: go back to All
+            if (_selectedCategoryId.HasValue && !categories.Any(c => c.Id == _selectedCategoryId.Value))
+            {
+                _selectedCategoryId = null;
+                SelectedCategoryTextBlock.Text = "All";
+                RenderProductButtons();
+            }
+
+            UpdateCategoryButtonLooks();
+        }
+
+        // Only the picked category is blue; the others are grey. The category is kept in the button's Tag.
+        private void UpdateCategoryButtonLooks()
+        {
+            foreach (var child in CategoryButtonsPanel.Children)
+            {
+                if (child is not Button button)
+                    continue;
+
+                bool selected = (button.Tag as int?) == _selectedCategoryId;
+
+                button.Background = selected
+                    ? new SolidColorBrush(Color.FromRgb(31, 111, 235))
+                    : new SolidColorBrush(Color.FromRgb(226, 232, 240));
+                button.Foreground = selected ? Brushes.White : Brushes.Black;
+            }
         }
 
         private string GetVisibleBillNumber(int billId)
@@ -125,10 +152,7 @@ namespace POSGardenia
                 Margin = new Thickness(0, 0, 0, 12),
                 FontSize = 17,
                 Template = TouchTemplate(),
-                Background = categoryId == null
-                    ? new SolidColorBrush(Color.FromRgb(31, 111, 235))
-                    : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-                Foreground = categoryId == null ? Brushes.White : Brushes.Black,
+                Tag = categoryId,
                 BorderThickness = new Thickness(0),
                 FontWeight = FontWeights.SemiBold,
                 Cursor = System.Windows.Input.Cursors.Hand
@@ -139,6 +163,7 @@ namespace POSGardenia
                 _selectedCategoryId = categoryId;
                 SelectedCategoryTextBlock.Text = categoryId == null ? "All" : text;
                 RenderProductButtons();
+                UpdateCategoryButtonLooks();
             };
 
             return button;
@@ -238,9 +263,13 @@ namespace POSGardenia
                     : 0;
                 decimal due = Math.Max(0, cartTotal - alreadyPaid);
 
+                PosDueTextBlock.Text = $"Due: {due:F2}";
+
+                // a bill that already has payments also says what it totals and what was paid
                 PosPaymentSummaryTextBlock.Text = alreadyPaid > 0
-                    ? $"Bill {cartTotal:F2} | Paid {alreadyPaid:F2} | Due {due:F2}"
-                    : $"Due {due:F2}";
+                    ? $"Bill {cartTotal:F2} | Paid {alreadyPaid:F2}"
+                    : "";
+                PosPaymentSummaryTextBlock.Visibility = alreadyPaid > 0 ? Visibility.Visible : Visibility.Collapsed;
                 PosPayAmountTextBox.Text = due.ToString("F2");
 
                 if (_currentTargetBillId.HasValue)
@@ -1609,14 +1638,18 @@ namespace POSGardenia
 
                 var expenses = _expenseRepository.GetByDate(reportDate);
                 decimal totalExpenses = _expenseRepository.GetTotalByDate(reportDate);
+                decimal stockPurchases = _expenseRepository.GetStockPurchaseTotalByDate(reportDate);
 
                 ExpensesDataGrid.ItemsSource = null;
                 ExpensesDataGrid.ItemsSource = expenses;
 
-                TotalExpenseTextBlock.Text = $"Total Expenses: {totalExpenses:F2}";
+                // the two are shown apart: expenses come off Net Sales, stock purchases do not
+                TotalExpenseTextBlock.Text = $"Expenses: {totalExpenses - stockPurchases:F2}";
+                StockPurchaseTotalTextBlock.Text = $"Stock purchases: {stockPurchases:F2}  (not in Net Sales)";
 
+                // Net Sales = sales minus the expenses, except what was spent buying stock
                 decimal sales = _paymentRepository.GetSalesTotalBySingleDate(reportDate);
-                decimal net = sales - totalExpenses;
+                decimal net = sales - _expenseRepository.GetDeductibleTotalByDate(reportDate);
 
                 NetSalesTextBlock.Text = net.ToString("F2");
                 NetSalesTextBlock.Foreground = net < 0

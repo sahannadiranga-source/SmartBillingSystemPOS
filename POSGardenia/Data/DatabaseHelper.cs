@@ -227,6 +227,14 @@ namespace POSGardenia.Data
                 command.CommandText = createStockMovementsTable;
                 command.ExecuteNonQuery();
 
+                // An expense made by buying stock (Inventory > Stock Items > Add stock with a purchase amount).
+                // It is listed with the day's expenses but is not deducted from Net Sales.
+                using (var alterExpenses = connection.CreateCommand())
+                {
+                    alterExpenses.CommandText = "ALTER TABLE Expenses ADD COLUMN IsStockPurchase INTEGER NOT NULL DEFAULT 0;";
+                    try { alterExpenses.ExecuteNonQuery(); } catch { }
+                }
+
                 // Kitchen tickets: when a bill item was sent to the kitchen. Nothing was ever sent before this
                 // column existed, so on first run every existing item counts as already handled; otherwise
                 // the first ticket on any open bill would print its old items again.

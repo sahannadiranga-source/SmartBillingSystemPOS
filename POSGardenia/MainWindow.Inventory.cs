@@ -27,7 +27,9 @@ namespace POSGardenia
                 grid.AutoGeneratingColumn += StockGrid_AutoGeneratingColumn;
 
             ProductsDataGrid.AutoGeneratingColumn += ProductsGrid_AutoGeneratingColumn;
-            BillHistoryDataGrid.AutoGeneratingColumn += HideNonBrowsableColumns;
+            BillHistoryDataGrid.AutoGeneratingColumn += BillHistoryGrid_AutoGeneratingColumn;
+            ExpensesDataGrid.AutoGeneratingColumn += HideNonBrowsableColumns;
+            ExpensesDataGrid.LoadingRow += ExpensesDataGrid_LoadingRow;
             ItemSalesReportDataGrid.AutoGeneratingColumn += ItemSalesGrid_AutoGeneratingColumn;
 
             DailyStockDataGrid.LoadingRow += DailyStockDataGrid_LoadingRow;
@@ -52,6 +54,17 @@ namespace POSGardenia
                 if (ReferenceEquals(e.OriginalSource, MainTabControl) && InventoryTabItem.IsSelected)
                     RefreshInventory();
             };
+        }
+
+        // Bill History: one Status column (Paid / Partially Paid / Unpaid / VOID); the plain bill status repeated it.
+        private static void BillHistoryGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
+        {
+            HideNonBrowsableColumns(sender, e);
+            if (e.Cancel)
+                return;
+
+            if (e.PropertyName == nameof(BillHistoryDisplay.PaymentStatus))
+                e.Column.Header = "Status";
         }
 
         private static void ProductsGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
@@ -124,10 +137,15 @@ namespace POSGardenia
 
             e.Column.Header = e.PropertyName switch
             {
-                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left Quantity" : "In Stock",
+                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left Quantity" : "Current Stock",
                 nameof(DailyStockDisplay.SoldInPacks) => "Sold",
                 nameof(DailyStockDisplay.SalesValue) => "Sales Amount",
-                nameof(StockItemDisplay.CountedInPacks) => "Counted",
+
+                // Stock Items: the stock now, what the books said this morning, and what was counted by hand
+                nameof(StockItemDisplay.InStock) => "Current Stock",
+                nameof(StockItemDisplay.SystemCount) => "Morning Sys Count",
+                nameof(StockItemDisplay.Counted) => "Morning Manual Count",
+                nameof(StockItemDisplay.CountedInPacks) => "Morning Manual Count",
                 _ => Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ")
             };
 
@@ -142,6 +160,15 @@ namespace POSGardenia
                     _ => "0.##"
                 };
             }
+        }
+
+        // Stock purchases have a light blue row so they stand apart from the normal expenses.
+        private static void ExpensesDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
+        {
+            if (e.Row.Item is Expense expense && expense.IsStockPurchase)
+                e.Row.Background = new SolidColorBrush(Color.FromRgb(0xCF, 0xE8, 0xFC));
+            else
+                e.Row.ClearValue(DataGridRow.BackgroundProperty);
         }
 
         private static void DailyStockDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
@@ -257,7 +284,7 @@ namespace POSGardenia
                     }
                     else
                     {
-                        AppMessage.Show("Counted: enter a number (0 or more), or leave it blank.");
+                        AppMessage.Show("Morning Manual Count: enter a number (0 or more), or leave it blank.");
                         e.Cancel = true;
                         return;
                     }
@@ -314,14 +341,30 @@ namespace POSGardenia
 
                 string? note = string.IsNullOrWhiteSpace(StockAddNoteTextBox.Text) ? null : StockAddNoteTextBox.Text.Trim();
 
-                _stockService.ReceiveStock(item.Id, quantity, note, DateTime.Today);
+                decimal? purchase = null;
+                if (!string.IsNullOrWhiteSpace(StockAddCostTextBox.Text))
+                {
+                    if (!decimal.TryParse(StockAddCostTextBox.Text.Trim(), out decimal paid) || paid <= 0)
+                    {
+                        AppMessage.Show("Purchase amount: enter a number greater than zero, or leave it blank.");
+                        return;
+                    }
+
+                    purchase = paid;
+                }
+
+                _stockService.ReceiveStock(item.Id, quantity, note, DateTime.Today, purchase);
 
                 StockAddQuantityTextBox.Clear();
+                StockAddCostTextBox.Clear();
                 StockAddNoteTextBox.Clear();
                 RefreshStockItems();
                 RefreshDailyStock();
+                LoadExpensesForSelectedDate();
 
-                StockAddResultTextBlock.Text = $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}.";
+                StockAddResultTextBlock.Text = purchase.HasValue
+                    ? $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}. {purchase.Value:#,0.00} saved as today's expense."
+                    : $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}.";
             }
             catch (Exception ex)
             {
