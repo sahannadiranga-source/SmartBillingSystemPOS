@@ -13,6 +13,9 @@ namespace POSGardenia.Data
                 ? overrideDir
                 : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "POSGardenia");
 
+        // The one folder for everything the app keeps: database, settings, and the local backup copies.
+        public static string DataFolder => DbFolder;
+
         private static readonly string DbPath =
             Path.Combine(DbFolder, "posgardenia.db");
 

@@ -6,7 +6,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+
+    <!-- the version of this release: change it here, then run release.ps1 -->
+    <Version>1.0.0</Version>
+    <Product>POSGardenia</Product>
+    <Company>Gardenia Pub</Company>
+
+    <!-- the icon of POSGardenia.exe (desktop, taskbar, Alt+Tab) -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- built into the program, so they travel with the exe -->
+    <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.15" />

@@ -12,9 +12,7 @@ namespace POSGardenia.Services
 
         public SettingsService()
         {
-            _settingsFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "POSGardenia");
+            _settingsFolder = POSGardenia.Data.DatabaseHelper.DataFolder;
 
             _settingsFile = Path.Combine(_settingsFolder, "settings.json");
         }

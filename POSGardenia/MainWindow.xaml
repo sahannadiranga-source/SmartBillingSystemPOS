@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:POSGardenia.Controls"
         Title="POSGardenia"
+        Icon="pack://application:,,,/POSGardenia;component/Assets/app.ico"
         MinHeight="720"
         MinWidth="1100"
         Height="900"
@@ -1539,9 +1540,11 @@
                 </Border.Effect>
 
                 <StackPanel>
-                    <TextBlock Text="Gardenia Restaurant" FontSize="28" FontWeight="Bold" Foreground="#FFC2410C" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="LoginTitleTextBlock" Text="Sign in" FontSize="18" Foreground="{StaticResource MutedBrush}"
-                               HorizontalAlignment="Center" Margin="0,4,0,20"/>
+                    <Image Source="pack://application:,,,/POSGardenia;component/Assets/logo.png"
+                           Width="150" Height="150" HorizontalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock x:Name="LoginTitleTextBlock" Text="Sign in" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,10,0,20"/>
 
                     <StackPanel x:Name="LoginFieldsPanel">
                         <TextBlock Text="Username" FontSize="14"/>
@@ -1566,6 +1569,9 @@
 
                     <Button x:Name="LoginButton" Content="Sign In" Style="{StaticResource PrimaryButtonStyle}"
                             IsDefault="True" Height="60" FontSize="18" Margin="0,16,0,0"/>
+
+                    <TextBlock x:Name="LoginVersionTextBlock" FontSize="12" Foreground="{StaticResource MutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,16,0,0"/>
                 </StackPanel>
             </Border>
         </Grid>

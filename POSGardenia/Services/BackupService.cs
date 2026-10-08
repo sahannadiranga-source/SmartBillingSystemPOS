@@ -35,7 +35,7 @@ namespace POSGardenia.Services
         }
 
         private static string DefaultFallbackFolder() =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "POSGardenia", "backups");
+            Path.Combine(DatabaseHelper.DataFolder, "backups");
 
         // -----------------------------
         // Backup

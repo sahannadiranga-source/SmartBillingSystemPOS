@@ -23,6 +23,10 @@ namespace POSGardenia
         // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
         private void InitAccounts()
         {
+            // the version is in the window title and on the sign-in card
+            Title = $"POSGardenia {AppInfo.Version}";
+            LoginVersionTextBlock.Text = AppInfo.VersionText;
+
             BuildPermissionBoxes();
 
             SizeChanged += (_, _) => UpdateUserBadgeLayout();
