@@ -82,6 +82,9 @@ namespace POSGardenia
 
             CartDataGrid.ItemsSource = _cart;
             RefreshCartView();
+
+            // last: nothing can be used until someone signs in
+            InitAccounts();
         }
 
         // -----------------------------
@@ -545,6 +548,12 @@ namespace POSGardenia
 
         private void AddMoreItemsFromTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesAddItems, "add more items to a bill"))
+                return;
+
+            if (!RequireAccess(AppPermissions.Pos, "open POS"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
@@ -616,6 +625,9 @@ namespace POSGardenia
 
         private void PayNowFromPos_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.PosPay, "take payments"))
+                return;
+
             try
             {
                 if (_cart == null || _cart.Count == 0)
@@ -776,6 +788,9 @@ namespace POSGardenia
         // Adds a new category, or updates the one loaded into the form (selected in the list).
         private void SaveCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             try
             {
                 var name = CategoryNameTextBox.Text.Trim();
@@ -875,6 +890,9 @@ namespace POSGardenia
 
         private void DeactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
                 AppMessage.Show("Select a category first.");
@@ -894,6 +912,9 @@ namespace POSGardenia
 
         private void ReactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
                 AppMessage.Show("Select a category first.");
@@ -913,6 +934,9 @@ namespace POSGardenia
 
         private void DeleteSelectedCategoryPermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesDelete, "delete categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
                 AppMessage.Show("Select a category first.");
@@ -939,6 +963,9 @@ namespace POSGardenia
 
         private void SaveProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 var name = ProductNameTextBox.Text?.Trim() ?? "";
@@ -1255,6 +1282,9 @@ namespace POSGardenia
 
         private void DeactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
@@ -1279,6 +1309,9 @@ namespace POSGardenia
 
         private void ReactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
@@ -1303,6 +1336,9 @@ namespace POSGardenia
 
         private void DeleteSelectedProductPermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsDelete, "delete products"))
+                return;
+
             if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
             {
                 AppMessage.Show("Select a product first.");
@@ -1328,6 +1364,9 @@ namespace POSGardenia
 
         private void SaveTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             var tableName = TableNameTextBox.Text.Trim();
 
             if (string.IsNullOrWhiteSpace(tableName))
@@ -1347,6 +1386,9 @@ namespace POSGardenia
 
         private void DeactivateSelectedTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
                 AppMessage.Show("Select a table first.");
@@ -1363,6 +1405,9 @@ namespace POSGardenia
 
         private void ReactivateSelectedTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
                 AppMessage.Show("Select a table first.");
@@ -1379,6 +1424,9 @@ namespace POSGardenia
 
         private void DeleteSelectedTablePermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterDelete, "delete tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
                 AppMessage.Show("Select a table first.");
@@ -1437,6 +1485,9 @@ namespace POSGardenia
 
         private void LoadSingleDateReport_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsLoad, "load the report of another date"))
+                return;
+
             try
             {
                 if (ReportDatePicker.SelectedDate == null)
@@ -1606,6 +1657,12 @@ namespace POSGardenia
 
         private void OpenSelectedBillForSettlement_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesSettle, "open a bill for settlement"))
+                return;
+
+            if (!RequireAccess(AppPermissions.Pos, "open POS"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
@@ -1664,6 +1721,9 @@ namespace POSGardenia
 
         private void AddExpenseButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 var selectedDate = ReportDatePicker.SelectedDate ?? DateTime.Today;
@@ -2159,6 +2219,9 @@ namespace POSGardenia
         }
         private void ChooseDailyReportFolder_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             try
             {
                 var dialog = new Microsoft.Win32.OpenFolderDialog
@@ -2183,6 +2246,9 @@ namespace POSGardenia
 
         private void SaveDailyReportSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             try
             {
                 string folder = DailyReportFolderTextBox.Text?.Trim() ?? "";
@@ -2221,6 +2287,9 @@ namespace POSGardenia
         // otherwise asks where to save it. It is opened afterwards so it can be checked or printed.
         private void SaveReportPdf_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsPdf, "save the report as PDF"))
+                return;
+
             try
             {
                 DateTime date = ReportDatePicker.SelectedDate ?? DateTime.Today;
@@ -2266,6 +2335,9 @@ namespace POSGardenia
 
         private void GenerateTodayReport_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             GenerateDailyReportForDate(DateTime.Today, showMessage: true);
         }
 
@@ -2386,6 +2458,9 @@ namespace POSGardenia
 
         private void SavePrinterSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsDevices, "change printer settings"))
+                return;
+
             try
             {
                 if (ReceiptPrinterComboBox.SelectedItem is not string selectedPrinter ||
@@ -2433,6 +2508,9 @@ namespace POSGardenia
 
         private void ChooseBackupFolder_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             var dialog = new Microsoft.Win32.OpenFolderDialog
             {
                 Title = "Choose the backup folder on your external drive",
@@ -2454,6 +2532,9 @@ namespace POSGardenia
 
         private void SaveBackupSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             try
             {
                 string folder = BackupFolderTextBox.Text?.Trim() ?? "";
@@ -2493,6 +2574,9 @@ namespace POSGardenia
 
         private void BackupNow_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             RunBackup(showMessage: true, force: true);
         }
 
@@ -2572,6 +2656,9 @@ namespace POSGardenia
 
         private void BackupWarningBanner_Tapped(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.Settings, "open Settings"))
+                return;
+
             MainTabControl.SelectedItem = SettingsTabItem;
         }
 
@@ -2590,6 +2677,9 @@ namespace POSGardenia
      
         private void DeleteExpense_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 if (ExpensesDataGrid.SelectedItem is not Expense exp)
@@ -2619,6 +2709,9 @@ namespace POSGardenia
 
         private void EditExpense_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 if (ExpensesDataGrid.SelectedItem is not Expense exp)
@@ -2681,6 +2774,9 @@ namespace POSGardenia
 
         private void VoidBill_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesVoid, "void bills"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
@@ -2781,6 +2877,9 @@ namespace POSGardenia
 
         private void ReprintSelectedBillReceipt_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.HistoryReprint, "reprint receipts"))
+                return;
+
             try
             {
                 if (_selectedHistoryBill == null)

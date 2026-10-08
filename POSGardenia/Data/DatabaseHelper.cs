@@ -227,6 +227,52 @@ namespace POSGardenia.Data
                 command.CommandText = createStockMovementsTable;
                 command.ExecuteNonQuery();
 
+                // People who can sign in. Passwords are kept only as hashes; what each person may open is
+                // in Permissions (comma-separated keys), or IsAdmin for full access.
+                // An older version of the app left a different, unused Users table (Username / PasswordHash / Role).
+                // It is renamed aside (nothing is deleted) so the new one can be created.
+                using (var checkOldUsers = connection.CreateCommand())
+                {
+                    checkOldUsers.CommandText = @"
+                        SELECT (SELECT COUNT(*) FROM pragma_table_info('Users')),
+                               (SELECT COUNT(*) FROM pragma_table_info('Users') WHERE name = 'FullName');";
+                    using var reader = checkOldUsers.ExecuteReader();
+                    reader.Read();
+                    bool oldLayout = reader.GetInt32(0) > 0 && reader.GetInt32(1) == 0;
+                    reader.Close();
+
+                    if (oldLayout)
+                    {
+                        using var renameOldUsers = connection.CreateCommand();
+                        renameOldUsers.CommandText = $"ALTER TABLE Users RENAME TO UsersLegacy_{DateTime.Now:yyyyMMddHHmmss};";
+                        try { renameOldUsers.ExecuteNonQuery(); } catch { }
+                    }
+                }
+
+                using (var createUsers = connection.CreateCommand())
+                {
+                    createUsers.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS Users (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            Username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                            PasswordHash TEXT NOT NULL,
+                            FullName TEXT NOT NULL,
+                            NicNumber TEXT NOT NULL DEFAULT '',
+                            Phone TEXT NOT NULL DEFAULT '',
+                            Address TEXT NOT NULL DEFAULT '',
+                            DateOfBirth TEXT NULL,
+                            Email TEXT NOT NULL DEFAULT '',
+                            EmergencyContact TEXT NOT NULL DEFAULT '',
+                            JoinedDate TEXT NOT NULL,
+                            IsAdmin INTEGER NOT NULL DEFAULT 0,
+                            IsActive INTEGER NOT NULL DEFAULT 1,
+                            Permissions TEXT NOT NULL DEFAULT '',
+                            CreatedAt TEXT NOT NULL,
+                            LastLoginAt TEXT NULL
+                        );";
+                    createUsers.ExecuteNonQuery();
+                }
+
                 // An expense made by buying stock (Inventory > Stock Items > Add stock with a purchase amount).
                 // It is listed with the day's expenses but is not deducted from Net Sales.
                 using (var alterExpenses = connection.CreateCommand())

@@ -93,6 +93,15 @@
             <Setter Property="MinWidth" Value="100"/>
         </Style>
 
+        <Style TargetType="PasswordBox">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="48"/>
             <Setter Property="Padding" Value="10,4"/>
@@ -206,10 +215,10 @@
                        Foreground="#FF92400E" TextWrapping="Wrap"/>
         </Border>
 
-        <TabControl x:Name="MainTabControl" Grid.Row="1">
+        <TabControl x:Name="MainTabControl" Grid.Row="1" IsEnabled="False">
 
             <!-- POS TAB -->
-            <TabItem Header="POS">
+            <TabItem x:Name="PosTab" Header="POS">
 
                 <Grid Margin="12">
                     <Grid.ColumnDefinitions>
@@ -462,7 +471,7 @@
             </TabItem>
 
             <!-- TABLES TAB -->
-            <TabItem Header="Tables">
+            <TabItem x:Name="TablesTab" Header="Tables">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
                 <Grid Margin="12">
@@ -605,7 +614,7 @@
                     <TabControl x:Name="InventorySubTabControl">
 
                         <!-- Daily Stock -->
-                        <TabItem Header="Daily Stock">
+                        <TabItem x:Name="DailyStockSubTab" Header="Daily Stock">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12">
                                     <Border Style="{StaticResource CardStyle}">
@@ -633,7 +642,7 @@
                         </TabItem>
 
                         <!-- Stock Items: one row per main item -->
-                        <TabItem Header="Stock Items">
+                        <TabItem x:Name="StockItemsSubTab" Header="Stock Items">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12">
                                     <Border Style="{StaticResource CardStyle}">
@@ -685,7 +694,7 @@
             </TabItem>
 
 			<!-- History TAB -->
-			<TabItem Header="History">
+			<TabItem x:Name="HistoryTab" Header="History">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
 				<Grid Margin="12">
@@ -763,7 +772,7 @@
 			</TabItem>
 
             <!-- REPORTS TAB -->
-			<TabItem Header="Reports">
+			<TabItem x:Name="ReportsTab" Header="Reports">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
 							  HorizontalScrollBarVisibility="Disabled">
 					<Grid Margin="12" MinWidth="1000">
@@ -994,12 +1003,12 @@
 			</TabItem>
 
             <!-- MANAGEMENT TAB -->
-            <TabItem Header="Management">
+            <TabItem x:Name="ManagementTab" Header="Management">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
                 <Grid Margin="12">
-                    <TabControl>
-                        <TabItem Header="Categories">
+                    <TabControl x:Name="ManagementSubTabControl">
+                        <TabItem x:Name="CategoriesSubTab" Header="Categories">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1051,7 +1060,7 @@
                             </Border>
                         </TabItem>
 
-                        <TabItem Header="Products">
+                        <TabItem x:Name="ProductsSubTab" Header="Products">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1160,7 +1169,7 @@
                             </Border>
                         </TabItem>
 
-                        <TabItem Header="Table Master">
+                        <TabItem x:Name="TableMasterSubTab" Header="Table Master">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1196,6 +1205,92 @@
                                     <DataGrid x:Name="TablesDataGrid" Grid.Row="2" SelectionMode="Single"/>
                                 </Grid>
                             </Border>
+                        </TabItem>
+
+                        <!-- Users: administrators only. Creates accounts and ticks what each person can open. -->
+                        <TabItem x:Name="UsersSubTab" Header="Users">
+                            <StackPanel>
+                                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="User Setup" FontSize="24" FontWeight="Bold" Margin="0,0,0,12"/>
+
+                                        <TextBlock Text="Personal details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                        <WrapPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Full name *" FontSize="14"/>
+                                                <TextBox x:Name="UserFullNameTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="NIC / ID number *" FontSize="14"/>
+                                                <TextBox x:Name="UserNicTextBox" Width="190"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Phone *" FontSize="14"/>
+                                                <TextBox x:Name="UserPhoneTextBox" Width="190"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Address *" FontSize="14"/>
+                                                <TextBox x:Name="UserAddressTextBox" Width="430"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Date of birth" FontSize="14"/>
+                                                <DatePicker x:Name="UserBirthDatePicker" Width="170"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Email" FontSize="14"/>
+                                                <TextBox x:Name="UserEmailTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Emergency contact" FontSize="14"/>
+                                                <TextBox x:Name="UserEmergencyTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Joined on" FontSize="14"/>
+                                                <DatePicker x:Name="UserJoinedDatePicker" Width="170"/>
+                                            </StackPanel>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="Sign in" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,6"/>
+                                        <WrapPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Username *" FontSize="14"/>
+                                                <TextBox x:Name="UserUsernameTextBox" Width="220"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock x:Name="UserPasswordLabel" Text="Password *" FontSize="14"/>
+                                                <PasswordBox x:Name="UserPasswordBox" Width="220"
+                                                             ToolTip="At least 6 characters. When changing a user, leave blank to keep the current password."/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Confirm password" FontSize="14"/>
+                                                <PasswordBox x:Name="UserPasswordConfirmBox" Width="220"/>
+                                            </StackPanel>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="Access" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,8"/>
+                                        <CheckBox x:Name="UserIsAdminCheckBox" Content="Administrator (everything, and can manage users)" Margin="6,0,0,12"/>
+                                        <WrapPanel x:Name="UserPermissionsPanel"/>
+
+                                        <WrapPanel Margin="0,14,0,0">
+                                            <Button x:Name="SaveUserButton" Content="Save User"
+                                                    Style="{StaticResource PrimaryButtonStyle}"/>
+                                            <Button x:Name="ClearUserButton" Content="Clear"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                            <Button x:Name="DeactivateUserButton" Content="Deactivate Selected"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                            <Button x:Name="ReactivateUserButton" Content="Reactivate Selected"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CardStyle}" Margin="0">
+                                    <StackPanel>
+                                        <TextBlock Text="Users" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                        <DataGrid x:Name="UsersDataGrid" SelectionMode="Single" MinHeight="160" MaxHeight="360"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
                         </TabItem>
                     </TabControl>
                 </Grid>
@@ -1434,6 +1529,92 @@
         </TabControl>
 
         <!-- On-screen keyboard / keypad (touch). Shown when a text field is tapped; see MainWindow.Touch.cs. -->
+        <!-- Who is using the till. Covers the pages (not the on-screen keyboard) until someone signs in. -->
+        <Grid x:Name="LoginOverlay" Grid.Row="0" Grid.RowSpan="2" Panel.ZIndex="100" Background="#FFF5F7FA">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="480"
+                    Background="White" CornerRadius="18" Padding="32,28"
+                    BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="30" ShadowDepth="8" Opacity="0.18" Color="#FF0F172A"/>
+                </Border.Effect>
+
+                <StackPanel>
+                    <TextBlock Text="Gardenia Restaurant" FontSize="28" FontWeight="Bold" Foreground="#FFC2410C" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="LoginTitleTextBlock" Text="Sign in" FontSize="18" Foreground="{StaticResource MutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,4,0,20"/>
+
+                    <StackPanel x:Name="LoginFieldsPanel">
+                        <TextBlock Text="Username" FontSize="14"/>
+                        <TextBox x:Name="LoginUsernameTextBox" Margin="0,2,0,12"/>
+                        <TextBlock Text="Password" FontSize="14"/>
+                        <PasswordBox x:Name="LoginPasswordBox" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SetupFieldsPanel" Visibility="Collapsed">
+                        <TextBlock Text="Full name" FontSize="14"/>
+                        <TextBox x:Name="SetupFullNameTextBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Username" FontSize="14"/>
+                        <TextBox x:Name="SetupUsernameTextBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Password" FontSize="14"/>
+                        <PasswordBox x:Name="SetupPasswordBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Confirm password" FontSize="14"/>
+                        <PasswordBox x:Name="SetupPasswordConfirmBox" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="LoginErrorTextBlock" Foreground="{StaticResource DangerBrush}" FontSize="15"
+                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0"/>
+
+                    <Button x:Name="LoginButton" Content="Sign In" Style="{StaticResource PrimaryButtonStyle}"
+                            IsDefault="True" Height="60" FontSize="18" Margin="0,16,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Signed in as ... [Log out], over the empty right end of the tab strip. -->
+        <Border x:Name="UserChip" Grid.Row="1" Panel.ZIndex="50" Visibility="Collapsed"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0"
+                Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1"
+                CornerRadius="26" Padding="6,4,6,4">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.12" Color="#FF0F172A"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <!-- coloured circle with the person's initials -->
+                <Border x:Name="UserAvatar" Width="42" Height="42" CornerRadius="21" Margin="0,0,10,0"
+                        VerticalAlignment="Center" Background="#FF1F6FEB">
+                    <TextBlock x:Name="UserInitialsTextBlock" Foreground="White" FontSize="17" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock x:Name="UserGreetingTextBlock" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                    <TextBlock x:Name="UserNameTextBlock" FontSize="16" FontWeight="SemiBold" MaxWidth="170"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <Border x:Name="UserRolePill" CornerRadius="10" Padding="10,3" Margin="0,0,12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="UserRoleTextBlock" FontSize="12" FontWeight="Bold"/>
+                </Border>
+
+                <Button x:Name="LogoutButton" Content="Log out" Style="{StaticResource SecondaryButtonStyle}"
+                        Height="42" MinWidth="92" Padding="14,0" Margin="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="#FFFEE2E2" CornerRadius="21" Padding="{TemplateBinding Padding}">
+                                <TextBlock Text="{TemplateBinding Content}" Foreground="#FFB91C1C" FontWeight="SemiBold" FontSize="15"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
+
         <controls:VirtualKeyboard x:Name="OnScreenKeyboard" Grid.Row="2" Visibility="Collapsed" Margin="0,8,0,0"/>
     </Grid>
 </Window>

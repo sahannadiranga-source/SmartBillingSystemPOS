@@ -89,6 +89,9 @@ namespace POSGardenia
         // offer to print the whole kitchen list again (lost ticket, paper jam).
         private void SendToKitchenFromTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesKitchen, "send items to the kitchen"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
@@ -136,6 +139,9 @@ namespace POSGardenia
 
         private void SaveKitchenPrinter_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsDevices, "change printer settings"))
+                return;
+
             try
             {
                 string selected = KitchenPrinterComboBox.SelectedItem as string ?? SameAsReceiptPrinter;

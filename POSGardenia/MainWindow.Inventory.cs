@@ -36,6 +36,13 @@ namespace POSGardenia
 
             StockItemsDataGrid.BeginningEdit += (_, e) =>
             {
+                // typing a count needs its own permission: without it the cell simply does not open
+                if (!RequireAccess(AppPermissions.StockCount, "enter the morning manual count"))
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
                 if (e.Row.Item is StockItemDisplay row)
                     row.BeginCountEdit();
             };
@@ -256,6 +263,12 @@ namespace POSGardenia
             if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not StockItemDisplay row)
                 return;
 
+            if (_currentUser?.Can(AppPermissions.StockCount) != true)
+            {
+                e.Cancel = true;
+                return;
+            }
+
             try
             {
                 decimal? total;
@@ -325,6 +338,9 @@ namespace POSGardenia
         // Stock only comes in as "received", always dated today (the sheet for any day can still be viewed on Daily Stock).
         private void AddStock_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.StockAdd, "add stock"))
+                return;
+
             try
             {
                 if (StockAddItemComboBox.SelectedItem is not StockItem item)
