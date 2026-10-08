@@ -1,3 +1,4 @@
+using POSGardenia.Controls;
 using POSGardenia.Models;
 using POSGardenia.Services;
 using System;
@@ -43,7 +44,7 @@ namespace POSGardenia
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("The kitchen ticket printed, but it could not be recorded as sent, so it may print again with the next order on this bill.\n" + ex.Message,
+                    AppMessage.Show("The kitchen ticket printed, but it could not be recorded as sent, so it may print again with the next order on this bill.\n" + ex.Message,
                         "Kitchen ticket", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
 
@@ -51,7 +52,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("KITCHEN TICKET NOT SENT.\nTell the kitchen about the new items yourself, then use Tables > Send to Kitchen.\n\n" + ex.Message,
+                AppMessage.Show("KITCHEN TICKET NOT SENT.\nTell the kitchen about the new items yourself, then use Tables > Send to Kitchen.\n\n" + ex.Message,
                     "Kitchen ticket", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
@@ -77,7 +78,7 @@ namespace POSGardenia
         {
             string items = string.Join("\n", ticket.Lines.Select(l => $"   {l.Quantity:0.##} x {l.Name}"));
 
-            MessageBox.Show(
+            AppMessage.Show(
                 $"KITCHEN TICKET NOT SENT ({error})\n\nTell the kitchen:\n{items}\n\nThe items stay pending. Fix the printer, then use Tables > Send to Kitchen.",
                 "Kitchen ticket",
                 MessageBoxButton.OK,
@@ -88,11 +89,14 @@ namespace POSGardenia
         // offer to print the whole kitchen list again (lost ticket, paper jam).
         private void SendToKitchenFromTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesKitchen, "send items to the kitchen"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
                 {
-                    MessageBox.Show("Select an open bill first.");
+                    AppMessage.Show("Select an open bill first.");
                     return;
                 }
 
@@ -102,18 +106,18 @@ namespace POSGardenia
                 if (_billItemRepository.GetPendingKitchenItemsByBillId(billId).Count > 0)
                 {
                     if (SendKitchenTicket(billId, tableName))
-                        MessageBox.Show("Sent to the kitchen.");
+                        AppMessage.Show("Sent to the kitchen.");
                     return;
                 }
 
                 var all = _billItemRepository.GetPendingKitchenItemsByBillId(billId, pendingOnly: false);
                 if (all.Count == 0)
                 {
-                    MessageBox.Show("This bill has no kitchen items.");
+                    AppMessage.Show("This bill has no kitchen items.");
                     return;
                 }
 
-                var again = MessageBox.Show(
+                var again = AppMessage.Show(
                     "All kitchen items were already sent.\nPrint the full kitchen list again?",
                     "Send to Kitchen",
                     MessageBoxButton.YesNo);
@@ -129,12 +133,15 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to send to the kitchen.\n" + ex.Message);
+                AppMessage.Show("Failed to send to the kitchen.\n" + ex.Message);
             }
         }
 
         private void SaveKitchenPrinter_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsDevices, "change printer settings"))
+                return;
+
             try
             {
                 string selected = KitchenPrinterComboBox.SelectedItem as string ?? SameAsReceiptPrinter;
@@ -142,11 +149,11 @@ namespace POSGardenia
                 _appSettings.KitchenPrinterName = selected == SameAsReceiptPrinter ? "" : selected;
                 _settingsService.Save(_appSettings);
 
-                MessageBox.Show("Kitchen printer saved.");
+                AppMessage.Show("Kitchen printer saved.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save the kitchen printer.\n" + ex.Message);
+                AppMessage.Show("Failed to save the kitchen printer.\n" + ex.Message);
             }
         }
 
@@ -165,7 +172,7 @@ namespace POSGardenia
             };
 
             var (sent, error) = _kitchenTicketService.Print(ticket, kitchenPrinter, _appSettings.ReceiptPrinterName);
-            MessageBox.Show(sent ? "Test ticket sent." : "Test ticket failed.\n" + error);
+            AppMessage.Show(sent ? "Test ticket sent." : "Test ticket failed.\n" + error);
         }
     }
 }

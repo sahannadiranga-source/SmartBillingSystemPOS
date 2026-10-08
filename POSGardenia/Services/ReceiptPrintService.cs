@@ -1,5 +1,7 @@
-﻿using POSGardenia.Models;
+﻿using POSGardenia.Controls;
+using POSGardenia.Models;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Printing;
 using System.Windows;
@@ -39,7 +41,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print receipt.\n" + ex.Message);
             }
         }
 
@@ -65,7 +67,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print receipt.\n" + ex.Message);
             }
         }
 
@@ -96,7 +98,7 @@ namespace POSGardenia.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to print test receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to print test receipt.\n" + ex.Message);
             }
         }
 
@@ -120,22 +122,13 @@ namespace POSGardenia.Services
             document.Blocks.Add(CreateParagraph($"Printed : {receipt.PrintedAt:yyyy-MM-dd HH:mm:ss}"));
             document.Blocks.Add(CreateParagraph("--------------------------------"));
 
-            document.Blocks.Add(CreateParagraph("Item                 Qty   Price   Total", 12, FontWeights.Bold));
+            document.Blocks.Add(CreateParagraph("Item".PadRight(LineWidth - 6) + "Amount", 12, FontWeights.Bold));
             document.Blocks.Add(CreateParagraph("--------------------------------"));
 
             foreach (var item in receipt.Items ?? Enumerable.Empty<ReceiptLine>())
             {
-                var name = item.ProductName ?? "";
-                if (name.Length > 18)
-                    name = name.Substring(0, 18);
-
-                string line =
-                    $"{name.PadRight(18)} " +
-                    $"{item.Quantity,4:0.##} " +
-                    $"{item.UnitPrice,7:0.00} " +
-                    $"{item.LineTotal,7:0.00}";
-
-                document.Blocks.Add(CreateParagraph(line));
+                foreach (var line in FormatItemLines(item))
+                    document.Blocks.Add(CreateParagraph(line));
             }
 
             document.Blocks.Add(CreateParagraph("--------------------------------"));
@@ -159,6 +152,80 @@ namespace POSGardenia.Services
             document.Blocks.Add(CreateParagraph("Thank you!", 14, FontWeights.Bold, TextAlignment.Center));
 
             return document;
+        }
+
+        // Characters across one receipt line (the dashes are this long too).
+        public const int LineWidth = 32;
+
+        // One item as receipt lines: the full name (wrapped, never cut off) and the amount at the right.
+        // More than one of it adds "2 x 140.00" so the price is shown once, only where it says something new.
+        //   Cheese one peace
+        //     2 x 140.00                 280.00
+        //   Kadala                       100.00
+        public static List<string> FormatItemLines(ReceiptLine item, int width = LineWidth)
+        {
+            string amount = item.LineTotal.ToString("0.00");
+            var lines = WrapText((item.ProductName ?? "").Trim(), width);
+            if (lines.Count == 0)
+                lines.Add("");
+
+            string tail = amount;
+            string detail = "";
+
+            if (item.Quantity != 1)
+            {
+                // the breakdown sits on its own line, under the name
+                detail = $"  {item.Quantity:0.##} x {item.UnitPrice:0.00}";
+                lines.Add(detail);
+            }
+
+            // the amount goes at the right of the last line when it fits, otherwise on a line of its own
+            string last = lines[^1];
+            if (last.Length + 1 + tail.Length <= width)
+                lines[^1] = last.PadRight(width - tail.Length) + tail;
+            else
+                lines.Add(tail.PadLeft(width));
+
+            return lines;
+        }
+
+        // Breaks text into lines of at most `width` characters at spaces; a single word longer than a line is split.
+        private static List<string> WrapText(string text, int width)
+        {
+            var lines = new List<string>();
+            var current = "";
+
+            foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string piece = word;
+
+                while (piece.Length > width)
+                {
+                    if (current.Length > 0)
+                    {
+                        lines.Add(current);
+                        current = "";
+                    }
+
+                    lines.Add(piece.Substring(0, width));
+                    piece = piece.Substring(width);
+                }
+
+                if (current.Length == 0)
+                    current = piece;
+                else if (current.Length + 1 + piece.Length <= width)
+                    current += " " + piece;
+                else
+                {
+                    lines.Add(current);
+                    current = piece;
+                }
+            }
+
+            if (current.Length > 0)
+                lines.Add(current);
+
+            return lines;
         }
 
         private Paragraph CreateParagraph(

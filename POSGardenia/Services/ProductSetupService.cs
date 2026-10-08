@@ -8,9 +8,9 @@ namespace POSGardenia.Services
     // Products and their "main item" (stock item). Products that share a main item share one stock:
     // a 750 ml bottle and its 100 / 50 / 25 ml shots all draw from the one "Arrack" main item (in ml).
     // A product and its main item are saved in ONE transaction, so a half-saved product can never
-    // be left behind. Quantities are added on Inventory > Daily Stock, not here.
+    // be left behind. Quantities are added on Inventory > Stock Items, not here.
     // (The kitchen flag is not set here: a product takes it from its category.
-    //  The bottle / pack size is set on Inventory > Daily Stock, not here, and saving a product never changes it.)
+    //  The main item's bottle / pack size is set here with the product when the form asks for it.)
     public class ProductSetupService
     {
         private readonly StockService _stockService = new();
@@ -21,7 +21,8 @@ namespace POSGardenia.Services
         // A sub product such as "Arrack 50ml" -> main item "Arrack", 50 per sale.
         public void CreateTrackedProduct(
             string name, int categoryId, decimal price,
-            string mainItemName, string unit, decimal unitsPerSale)
+            string mainItemName, string unit, decimal unitsPerSale,
+            bool setPackSize = false, decimal? packSize = null)
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new Exception("Enter product name.");
@@ -37,6 +38,7 @@ namespace POSGardenia.Services
             using var transaction = connection.BeginTransaction();
 
             int stockItemId = ResolveMainItem(connection, transaction, mainItemName, unit, categoryId);
+            ApplyPackSize(connection, transaction, stockItemId, unit, setPackSize, packSize);
 
             _productRepository.Add(connection, transaction, new Product
             {
@@ -54,7 +56,8 @@ namespace POSGardenia.Services
         // Saves an edited product together with its stock link. mainItemName == null means
         // "not tracked": the link is removed and sales no longer touch stock.
         public void UpdateProduct(
-            Product product, string? mainItemName, string unit, decimal unitsPerSale)
+            Product product, string? mainItemName, string unit, decimal unitsPerSale,
+            bool setPackSize = false, decimal? packSize = null)
         {
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
@@ -72,11 +75,33 @@ namespace POSGardenia.Services
 
                 product.StockItemId = ResolveMainItem(connection, transaction, mainItemName, unit, product.CategoryId);
                 product.UnitsPerSale = unitsPerSale;
+                ApplyPackSize(connection, transaction, product.StockItemId.Value, unit, setPackSize, packSize);
             }
 
             _productRepository.Update(connection, transaction, product);
 
             transaction.Commit();
+        }
+
+        // Saves the main item's bottle / pack size (null removes it). Skipped when the form did not ask for it,
+        // so a product saved without the field never changes the size. Items counted in bottles have none.
+        private void ApplyPackSize(
+            SqliteConnection connection, SqliteTransaction transaction,
+            int stockItemId, string unit, bool setPackSize, decimal? packSize)
+        {
+            if (!setPackSize)
+                return;
+
+            if (packSize.HasValue && packSize.Value <= 0)
+                throw new Exception("Per bottle/pack size must be greater than zero (or leave it blank).");
+
+            if (packSize.HasValue && PackFormatter.IsCountedInBottles(unit))
+                throw new Exception("Items counted in bottles do not need a bottle / pack size.");
+
+            _stockItemRepository.UpdatePackSize(
+                connection, transaction, stockItemId,
+                packSize.HasValue ? PackFormatter.PackNameFor(unit.Trim()) : null,
+                packSize);
         }
 
         // Finds the main item by name or creates it (with 0 stock). Joining an existing one requires

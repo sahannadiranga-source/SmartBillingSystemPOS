@@ -93,6 +93,15 @@
             <Setter Property="MinWidth" Value="100"/>
         </Style>
 
+        <Style TargetType="PasswordBox">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="48"/>
             <Setter Property="Padding" Value="10,4"/>
@@ -206,15 +215,17 @@
                        Foreground="#FF92400E" TextWrapping="Wrap"/>
         </Border>
 
-        <TabControl x:Name="MainTabControl" Grid.Row="1">
+        <TabControl x:Name="MainTabControl" Grid.Row="1" IsEnabled="False">
 
             <!-- POS TAB -->
-            <TabItem Header="POS">
+            <TabItem x:Name="PosTab" Header="POS">
 
                 <Grid Margin="12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="0.9*"/>
-                        <ColumnDefinition Width="2.0*"/>
+                        <!-- Categories and Products stop growing once their buttons fit (3 products across);
+                             all the spare width goes to the cart. -->
+                        <ColumnDefinition Width="0.9*" MaxWidth="360"/>
+                        <ColumnDefinition Width="2.0*" MaxWidth="660"/>
                         <ColumnDefinition Width="1.7*"/>
                     </Grid.ColumnDefinitions>
 
@@ -355,15 +366,22 @@
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,8"/>
 
-                            <WrapPanel Grid.Row="6" Margin="0,0,0,12">
-                                <TextBlock Text="Table:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                <ComboBox x:Name="PosTableComboBox"
-                                          Width="180"
+                            <!-- The pickers stretch to the cart's width; the button keeps its size. -->
+                            <Grid Grid.Row="6" Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Table:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                <ComboBox x:Name="PosTableComboBox" Grid.Column="1"
+                                          MinWidth="140"
                                           DisplayMemberPath="TableName"/>
-                                <Button Content="Open Table Bill"
+                                <Button Grid.Column="2" Content="Open Table Bill"
                                         Style="{StaticResource PrimaryButtonStyle}"
+                                        Margin="12,0,0,0"
                                         Click="CreateNewTableBillFromCart_Click"/>
-                            </WrapPanel>
+                            </Grid>
 
                             <StackPanel Grid.Row="7" Margin="0,0,0,8">
                                 <TextBlock Text="Existing Open Bill"
@@ -371,16 +389,22 @@
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
 
-                                <WrapPanel Margin="0,0,0,12">
-                                    <TextBlock Text="Open bill:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <ComboBox x:Name="PosExistingBillComboBox"
-                                              Width="320"
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Open bill:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <ComboBox x:Name="PosExistingBillComboBox" Grid.Column="1"
+                                              MinWidth="140"
                                               DisplayMemberPath="DisplayText"
                                               SelectionChanged="PosExistingBillComboBox_SelectionChanged"/>
-                                    <Button Content="Add To Existing Bill"
+                                    <Button Grid.Column="2" Content="Add To Existing Bill"
                                             Style="{StaticResource SecondaryButtonStyle}"
+                                            Margin="12,0,0,0"
                                             Click="AddCartToExistingBill_Click"/>
-                                </WrapPanel>
+                                </Grid>
 
                             </StackPanel>
                         </Grid>
@@ -393,13 +417,20 @@
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,8"/>
 
-                                <TextBlock x:Name="PosPaymentSummaryTextBlock"
-                                           Text="Due 0.00"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource MutedBrush}"
-                                           Margin="0,0,0,8"
-                                           TextWrapping="Wrap"/>
+                                <!-- Due in orange, the same size as the green Change box below it. -->
+                                <Border Background="#FFFFF7ED" BorderBrush="#FFEA580C" BorderThickness="2"
+                                        CornerRadius="10" Padding="12,6" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock x:Name="PosDueTextBlock" Text="Due: 0.00"
+                                                   FontSize="26" FontWeight="Bold" Foreground="#FFC2410C"/>
+                                        <TextBlock x:Name="PosPaymentSummaryTextBlock"
+                                                   Visibility="Collapsed"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#FF9A3412"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
 
                                 <Border x:Name="PosChangeBorder" Visibility="Collapsed"
                                         Background="#FFEAF7EF" BorderBrush="#FF16A34A" BorderThickness="2"
@@ -408,22 +439,30 @@
                                                FontSize="26" FontWeight="Bold" Foreground="#FF166534"/>
                                 </Border>
 
-                                <WrapPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
-                                        <TextBlock Text="Method:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <ComboBox x:Name="PosQuickPaymentMethodComboBox"
-                                                Width="150"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,10,10">
-                                        <TextBlock Text="Received:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
-                                    <TextBox x:Name="PosPayAmountTextBox" Tag="decimal"
-                                             Width="140"
+                                <!-- Method and Received share the cart's width; Pay Now spans it underneath. -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Method:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <ComboBox x:Name="PosQuickPaymentMethodComboBox" Grid.Row="0" Grid.Column="1" MinWidth="90" Margin="0,0,16,0"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Received:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBox x:Name="PosPayAmountTextBox" Grid.Row="0" Grid.Column="3" Tag="decimal" MinWidth="90"
                                              ToolTip="Cash handed over by the customer (starts at the amount due)"/>
-                                    </StackPanel>
-                                    <Button Content="Pay Now"
+
+                                    <Button Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4" Content="Pay Now"
                                             Style="{StaticResource PrimaryButtonStyle}"
+                                            Margin="0,12,0,0" Height="60" FontSize="18"
                                             Click="PayNowFromPos_Click"/>
-                                </WrapPanel>
+                                </Grid>
                         </StackPanel>
                     </Grid>
                     </Border>
@@ -432,7 +471,7 @@
             </TabItem>
 
             <!-- TABLES TAB -->
-            <TabItem Header="Tables">
+            <TabItem x:Name="TablesTab" Header="Tables">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
                 <Grid Margin="12">
@@ -575,7 +614,7 @@
                     <TabControl x:Name="InventorySubTabControl">
 
                         <!-- Daily Stock -->
-                        <TabItem Header="Daily Stock">
+                        <TabItem x:Name="DailyStockSubTab" Header="Daily Stock">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12">
                                     <Border Style="{StaticResource CardStyle}">
@@ -597,75 +636,54 @@
                                         <DataGrid x:Name="DailyStockDataGrid" MinHeight="220" MaxHeight="420"/>
                                     </Border>
 
-                                    <Border Style="{StaticResource CardStyle}">
-                                        <StackPanel>
-                                            <TextBlock Text="Add stock entry (for the date above)" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <TextBlock x:Name="StockEntryHintTextBlock" Margin="0,0,0,10"
-                                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-                                            <WrapPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Item" FontSize="14"/>
-                                                    <ComboBox x:Name="StockEntryItemComboBox" Width="220" DisplayMemberPath="Name"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Entry" FontSize="14"/>
-                                                    <ComboBox x:Name="StockEntryTypeComboBox" Width="170"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock x:Name="StockEntryQuantityLabel" Text="Quantity" FontSize="14"/>
-                                                    <TextBox x:Name="StockEntryQuantityTextBox" Tag="signed" Width="100"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Note (optional)" FontSize="14"/>
-                                                    <TextBox x:Name="StockEntryNoteTextBox" Width="220"/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
-                                                    <Button Content="Add Entry" Style="{StaticResource PrimaryButtonStyle}"
-                                                            Click="AddStockEntry_Click"/>
-                                                </StackPanel>
-                                            </WrapPanel>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Style="{StaticResource CardStyle}">
-                                        <StackPanel>
-                                            <TextBlock Text="Bottle or pack size (for the item selected above)" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <TextBlock x:Name="PackItemTextBlock" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                                            <WrapPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Bottle or pack" FontSize="14"/>
-                                                    <TextBox x:Name="PackNameTextBox" Width="150" IsReadOnly="True" Focusable="False" IsTabStop="False" Background="#FFF1F5F9"
-                                                             ToolTip="Set automatically from what the item is counted in: ml = bottle, unit = pack."/>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6">
-                                                    <TextBlock Text="Per bottle/pack size" FontSize="14"/>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBox x:Name="PackSizeTextBox" Tag="decimal" Width="150"
-                                                                 ToolTip="How much of the stock unit is in one full bottle / pack: 750 for a 750 ml bottle, 20 for a pack of 20 cigarettes."/>
-                                                        <TextBlock x:Name="PackUnitTextBlock" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
-                                                    <Button x:Name="SavePackSizeButton" Content="Save Size" Style="{StaticResource PrimaryButtonStyle}"
-                                                            Click="SavePackSize_Click"/>
-                                                </StackPanel>
-                                            </WrapPanel>
-                                        </StackPanel>
-                                    </Border>
+                       
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
 
                         <!-- Stock Items: one row per main item -->
-                        <TabItem Header="Stock Items">
+                        <TabItem x:Name="StockItemsSubTab" Header="Stock Items">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="12">
                                     <Border Style="{StaticResource CardStyle}">
                                         <StackPanel>
                                             <TextBlock Text="Stock Items" FontSize="24" FontWeight="Bold" Margin="0,0,0,4"/>
-                                            <DataGrid x:Name="StockItemsDataGrid" MinHeight="200" MaxHeight="420"/>
+                                            <DataGrid x:Name="StockItemsDataGrid" MinHeight="200" MaxHeight="420"
+                                                      IsReadOnly="False" CanUserDeleteRows="False"/>
                                         </StackPanel>
                                     </Border>
+
+                                    <Border Style="{StaticResource CardStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="Add stock (received today)" FontSize="18" FontWeight="Bold" Margin="0,0,0,8"/>
+                                            <WrapPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Item" FontSize="14"/>
+                                                    <ComboBox x:Name="StockAddItemComboBox" Width="260" DisplayMemberPath="Name"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock x:Name="StockAddQuantityLabel" Text="Quantity" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddQuantityTextBox" Tag="decimal" Width="120"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Purchase amount (optional)" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddCostTextBox" Tag="decimal" Width="170"
+                                                             ToolTip="What you paid. It is saved as today's expense (not taken off Net Sales)."/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6">
+                                                    <TextBlock Text="Note (optional)" FontSize="14"/>
+                                                    <TextBox x:Name="StockAddNoteTextBox" Width="220"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,10,6" VerticalAlignment="Bottom">
+                                                    <Button Content="Add Stock" Style="{StaticResource PrimaryButtonStyle}"
+                                                            Click="AddStock_Click"/>
+                                                </StackPanel>
+                                            </WrapPanel>
+                                            <TextBlock x:Name="StockAddResultTextBlock" FontSize="16" FontWeight="SemiBold" Foreground="#FF166534"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                   
 
                                 </StackPanel>
                             </ScrollViewer>
@@ -676,7 +694,7 @@
             </TabItem>
 
 			<!-- History TAB -->
-			<TabItem Header="History">
+			<TabItem x:Name="HistoryTab" Header="History">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
 				<Grid Margin="12">
@@ -754,7 +772,7 @@
 			</TabItem>
 
             <!-- REPORTS TAB -->
-			<TabItem Header="Reports">
+			<TabItem x:Name="ReportsTab" Header="Reports">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
 							  HorizontalScrollBarVisibility="Disabled">
 					<Grid Margin="12" MinWidth="1000">
@@ -951,10 +969,16 @@
 
 									<StackPanel Grid.Row="2" Margin="0,0,0,10">
 										<TextBlock x:Name="TotalExpenseTextBlock"
-												   Text="Total Expenses: 0.00"
+												   Text="Expenses: 0.00"
 												   FontSize="16"
 												   FontWeight="SemiBold"
-												   Margin="0,0,0,4"/>
+												   Margin="0,0,0,2"/>
+										<TextBlock x:Name="StockPurchaseTotalTextBlock"
+												   Text="Stock purchases: 0.00"
+												   FontSize="16"
+												   FontWeight="SemiBold"
+												   Foreground="#FF075985"
+												   Margin="0,0,0,8"/>
 
 										<WrapPanel>
 											<Button Content="Edit Selected"
@@ -979,12 +1003,12 @@
 			</TabItem>
 
             <!-- MANAGEMENT TAB -->
-            <TabItem Header="Management">
+            <TabItem x:Name="ManagementTab" Header="Management">
 				<ScrollViewer VerticalScrollBarVisibility="Auto"
               HorizontalScrollBarVisibility="Disabled">
                 <Grid Margin="12">
-                    <TabControl>
-                        <TabItem Header="Categories">
+                    <TabControl x:Name="ManagementSubTabControl">
+                        <TabItem x:Name="CategoriesSubTab" Header="Categories">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1036,7 +1060,7 @@
                             </Border>
                         </TabItem>
 
-                        <TabItem Header="Products">
+                        <TabItem x:Name="ProductsSubTab" Header="Products">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1082,7 +1106,7 @@
                                         </WrapPanel>
 
                                         <!-- Stock: no Text/TextChanged handlers are wired in XAML; they are attached in code
-                                             after InitializeComponent. Quantities are added on Inventory > Daily Stock. -->
+                                             after InitializeComponent. Quantities are added on Inventory > Stock Items. -->
                                         <TextBlock FontWeight="SemiBold" Margin="0,0,0,6" Text="Tick 'Track stock' to add this product to inventory."/>
                                         <WrapPanel x:Name="TrackStockPanel">
                                             <CheckBox x:Name="TrackStockCheckBox" Content="Track stock" VerticalAlignment="Center" Margin="0,0,16,6"
@@ -1102,8 +1126,19 @@
                                                 <TextBox x:Name="StockUsedPerSaleTextBox" Tag="decimal" Width="150"
                                                          ToolTip="How much of the main item one sale uses, in the stock unit (e.g. 750 for a 750 ml bottle, 50 for a 50 ml shot, 1 for a bottle counted in bottles)."/>
                                             </StackPanel>
+                                            <StackPanel Margin="0,0,12,6">
+                                                <TextBlock Text="Per bottle/pack size" FontSize="14"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBox x:Name="PackSizeTextBox" Tag="decimal" Width="150"
+                                                             ToolTip="Optional: how much is in one full bottle / pack, e.g. 750 for a 750 ml bottle, 20 for a pack of 20. Not used for beer."/>
+                                                    <TextBlock x:Name="PackUnitTextBlock" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="{StaticResource MutedBrush}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            
+                                            
                                         </WrapPanel>
-                                    </StackPanel>
+
+</StackPanel>
 
                                     <Grid Grid.Row="2">
                                         <Grid.RowDefinitions>
@@ -1134,7 +1169,7 @@
                             </Border>
                         </TabItem>
 
-                        <TabItem Header="Table Master">
+                        <TabItem x:Name="TableMasterSubTab" Header="Table Master">
                             <Border Style="{StaticResource CardStyle}" Margin="0">
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -1170,6 +1205,92 @@
                                     <DataGrid x:Name="TablesDataGrid" Grid.Row="2" SelectionMode="Single"/>
                                 </Grid>
                             </Border>
+                        </TabItem>
+
+                        <!-- Users: administrators only. Creates accounts and ticks what each person can open. -->
+                        <TabItem x:Name="UsersSubTab" Header="Users">
+                            <StackPanel>
+                                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="User Setup" FontSize="24" FontWeight="Bold" Margin="0,0,0,12"/>
+
+                                        <TextBlock Text="Personal details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                        <WrapPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Full name *" FontSize="14"/>
+                                                <TextBox x:Name="UserFullNameTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="NIC / ID number *" FontSize="14"/>
+                                                <TextBox x:Name="UserNicTextBox" Width="190"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Phone *" FontSize="14"/>
+                                                <TextBox x:Name="UserPhoneTextBox" Width="190"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Address *" FontSize="14"/>
+                                                <TextBox x:Name="UserAddressTextBox" Width="430"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Date of birth" FontSize="14"/>
+                                                <DatePicker x:Name="UserBirthDatePicker" Width="170"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Email" FontSize="14"/>
+                                                <TextBox x:Name="UserEmailTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Emergency contact" FontSize="14"/>
+                                                <TextBox x:Name="UserEmergencyTextBox" Width="260"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Joined on" FontSize="14"/>
+                                                <DatePicker x:Name="UserJoinedDatePicker" Width="170"/>
+                                            </StackPanel>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="Sign in" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,6"/>
+                                        <WrapPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Username *" FontSize="14"/>
+                                                <TextBox x:Name="UserUsernameTextBox" Width="220"/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock x:Name="UserPasswordLabel" Text="Password *" FontSize="14"/>
+                                                <PasswordBox x:Name="UserPasswordBox" Width="220"
+                                                             ToolTip="At least 6 characters. When changing a user, leave blank to keep the current password."/>
+                                            </StackPanel>
+                                            <StackPanel Margin="0,0,12,8">
+                                                <TextBlock Text="Confirm password" FontSize="14"/>
+                                                <PasswordBox x:Name="UserPasswordConfirmBox" Width="220"/>
+                                            </StackPanel>
+                                        </WrapPanel>
+
+                                        <TextBlock Text="Access" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,8"/>
+                                        <CheckBox x:Name="UserIsAdminCheckBox" Content="Administrator (everything, and can manage users)" Margin="6,0,0,12"/>
+                                        <WrapPanel x:Name="UserPermissionsPanel"/>
+
+                                        <WrapPanel Margin="0,14,0,0">
+                                            <Button x:Name="SaveUserButton" Content="Save User"
+                                                    Style="{StaticResource PrimaryButtonStyle}"/>
+                                            <Button x:Name="ClearUserButton" Content="Clear"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                            <Button x:Name="DeactivateUserButton" Content="Deactivate Selected"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                            <Button x:Name="ReactivateUserButton" Content="Reactivate Selected"
+                                                    Style="{StaticResource SecondaryButtonStyle}"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource CardStyle}" Margin="0">
+                                    <StackPanel>
+                                        <TextBlock Text="Users" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                        <DataGrid x:Name="UsersDataGrid" SelectionMode="Single" MinHeight="160" MaxHeight="360"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
                         </TabItem>
                     </TabControl>
                 </Grid>
@@ -1408,6 +1529,92 @@
         </TabControl>
 
         <!-- On-screen keyboard / keypad (touch). Shown when a text field is tapped; see MainWindow.Touch.cs. -->
+        <!-- Who is using the till. Covers the pages (not the on-screen keyboard) until someone signs in. -->
+        <Grid x:Name="LoginOverlay" Grid.Row="0" Grid.RowSpan="2" Panel.ZIndex="100" Background="#FFF5F7FA">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="480"
+                    Background="White" CornerRadius="18" Padding="32,28"
+                    BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="30" ShadowDepth="8" Opacity="0.18" Color="#FF0F172A"/>
+                </Border.Effect>
+
+                <StackPanel>
+                    <TextBlock Text="Gardenia Restaurant" FontSize="28" FontWeight="Bold" Foreground="#FFC2410C" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="LoginTitleTextBlock" Text="Sign in" FontSize="18" Foreground="{StaticResource MutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,4,0,20"/>
+
+                    <StackPanel x:Name="LoginFieldsPanel">
+                        <TextBlock Text="Username" FontSize="14"/>
+                        <TextBox x:Name="LoginUsernameTextBox" Margin="0,2,0,12"/>
+                        <TextBlock Text="Password" FontSize="14"/>
+                        <PasswordBox x:Name="LoginPasswordBox" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SetupFieldsPanel" Visibility="Collapsed">
+                        <TextBlock Text="Full name" FontSize="14"/>
+                        <TextBox x:Name="SetupFullNameTextBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Username" FontSize="14"/>
+                        <TextBox x:Name="SetupUsernameTextBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Password" FontSize="14"/>
+                        <PasswordBox x:Name="SetupPasswordBox" Margin="0,2,0,10"/>
+                        <TextBlock Text="Confirm password" FontSize="14"/>
+                        <PasswordBox x:Name="SetupPasswordConfirmBox" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="LoginErrorTextBlock" Foreground="{StaticResource DangerBrush}" FontSize="15"
+                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0"/>
+
+                    <Button x:Name="LoginButton" Content="Sign In" Style="{StaticResource PrimaryButtonStyle}"
+                            IsDefault="True" Height="60" FontSize="18" Margin="0,16,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Signed in as ... [Log out], over the empty right end of the tab strip. -->
+        <Border x:Name="UserChip" Grid.Row="1" Panel.ZIndex="50" Visibility="Collapsed"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0"
+                Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1"
+                CornerRadius="26" Padding="6,4,6,4">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.12" Color="#FF0F172A"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <!-- coloured circle with the person's initials -->
+                <Border x:Name="UserAvatar" Width="42" Height="42" CornerRadius="21" Margin="0,0,10,0"
+                        VerticalAlignment="Center" Background="#FF1F6FEB">
+                    <TextBlock x:Name="UserInitialsTextBlock" Foreground="White" FontSize="17" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock x:Name="UserGreetingTextBlock" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
+                    <TextBlock x:Name="UserNameTextBlock" FontSize="16" FontWeight="SemiBold" MaxWidth="170"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <Border x:Name="UserRolePill" CornerRadius="10" Padding="10,3" Margin="0,0,12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="UserRoleTextBlock" FontSize="12" FontWeight="Bold"/>
+                </Border>
+
+                <Button x:Name="LogoutButton" Content="Log out" Style="{StaticResource SecondaryButtonStyle}"
+                        Height="42" MinWidth="92" Padding="14,0" Margin="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="#FFFEE2E2" CornerRadius="21" Padding="{TemplateBinding Padding}">
+                                <TextBlock Text="{TemplateBinding Content}" Foreground="#FFB91C1C" FontWeight="SemiBold" FontSize="15"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
+
         <controls:VirtualKeyboard x:Name="OnScreenKeyboard" Grid.Row="2" Visibility="Collapsed" Margin="0,8,0,0"/>
     </Grid>
 </Window>

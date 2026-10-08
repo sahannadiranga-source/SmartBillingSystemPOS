@@ -19,6 +19,10 @@ namespace POSGardenia.Models
         // Full bottle / pack of the main item (blank when not set).
         public string? PackName { get; set; }
         public decimal? PackSize { get; set; }
+        public decimal? ExtraPerPack { get; set; }
+
+        // Counted opening minus the previous day's close (saved with the day); null when nothing was counted.
+        public decimal? Difference { get; set; }
 
         public decimal ClosingQuantity =>
             OpeningQuantity + ReceivedQuantity - SoldQuantity + AdjustedQuantity;

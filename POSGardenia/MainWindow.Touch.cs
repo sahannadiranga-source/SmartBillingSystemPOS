@@ -28,6 +28,21 @@ namespace POSGardenia
 
         private void AnyElementGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
+            // a password box takes the full keyboard
+            if (e.OriginalSource is PasswordBox passwordBox)
+            {
+                if (!_appSettings.UseOnScreenKeyboard || !passwordBox.IsEnabled)
+                {
+                    HideOnScreenKeyboard(clearFocus: false);
+                    return;
+                }
+
+                OnScreenKeyboard.Attach(passwordBox);
+                OnScreenKeyboard.Visibility = Visibility.Visible;
+                Dispatcher.BeginInvoke(new Action(() => passwordBox.BringIntoView()), DispatcherPriority.Background);
+                return;
+            }
+
             if (e.OriginalSource is not TextBox textBox)
                 return;
 
@@ -50,7 +65,7 @@ namespace POSGardenia
             // Focus moving to another text field keeps the keyboard; moving anywhere else closes it.
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (Keyboard.FocusedElement is not TextBox)
+                if (Keyboard.FocusedElement is not TextBox and not PasswordBox)
                     HideOnScreenKeyboard(clearFocus: false);
             }), DispatcherPriority.Input);
         }
@@ -89,7 +104,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save the keyboard setting.\n" + ex.Message);
+                AppMessage.Show("Failed to save the keyboard setting.\n" + ex.Message);
             }
         }
     }

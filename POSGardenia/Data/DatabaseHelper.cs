@@ -227,6 +227,60 @@ namespace POSGardenia.Data
                 command.CommandText = createStockMovementsTable;
                 command.ExecuteNonQuery();
 
+                // People who can sign in. Passwords are kept only as hashes; what each person may open is
+                // in Permissions (comma-separated keys), or IsAdmin for full access.
+                // An older version of the app left a different, unused Users table (Username / PasswordHash / Role).
+                // It is renamed aside (nothing is deleted) so the new one can be created.
+                using (var checkOldUsers = connection.CreateCommand())
+                {
+                    checkOldUsers.CommandText = @"
+                        SELECT (SELECT COUNT(*) FROM pragma_table_info('Users')),
+                               (SELECT COUNT(*) FROM pragma_table_info('Users') WHERE name = 'FullName');";
+                    using var reader = checkOldUsers.ExecuteReader();
+                    reader.Read();
+                    bool oldLayout = reader.GetInt32(0) > 0 && reader.GetInt32(1) == 0;
+                    reader.Close();
+
+                    if (oldLayout)
+                    {
+                        using var renameOldUsers = connection.CreateCommand();
+                        renameOldUsers.CommandText = $"ALTER TABLE Users RENAME TO UsersLegacy_{DateTime.Now:yyyyMMddHHmmss};";
+                        try { renameOldUsers.ExecuteNonQuery(); } catch { }
+                    }
+                }
+
+                using (var createUsers = connection.CreateCommand())
+                {
+                    createUsers.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS Users (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            Username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                            PasswordHash TEXT NOT NULL,
+                            FullName TEXT NOT NULL,
+                            NicNumber TEXT NOT NULL DEFAULT '',
+                            Phone TEXT NOT NULL DEFAULT '',
+                            Address TEXT NOT NULL DEFAULT '',
+                            DateOfBirth TEXT NULL,
+                            Email TEXT NOT NULL DEFAULT '',
+                            EmergencyContact TEXT NOT NULL DEFAULT '',
+                            JoinedDate TEXT NOT NULL,
+                            IsAdmin INTEGER NOT NULL DEFAULT 0,
+                            IsActive INTEGER NOT NULL DEFAULT 1,
+                            Permissions TEXT NOT NULL DEFAULT '',
+                            CreatedAt TEXT NOT NULL,
+                            LastLoginAt TEXT NULL
+                        );";
+                    createUsers.ExecuteNonQuery();
+                }
+
+                // An expense made by buying stock (Inventory > Stock Items > Add stock with a purchase amount).
+                // It is listed with the day's expenses but is not deducted from Net Sales.
+                using (var alterExpenses = connection.CreateCommand())
+                {
+                    alterExpenses.CommandText = "ALTER TABLE Expenses ADD COLUMN IsStockPurchase INTEGER NOT NULL DEFAULT 0;";
+                    try { alterExpenses.ExecuteNonQuery(); } catch { }
+                }
+
                 // Kitchen tickets: when a bill item was sent to the kitchen. Nothing was ever sent before this
                 // column existed, so on first run every existing item counts as already handled; otherwise
                 // the first ticket on any open bill would print its old items again.
@@ -304,6 +358,44 @@ namespace POSGardenia.Data
                 {
                     alterPack2.CommandText = "ALTER TABLE StockItems ADD COLUMN PackSize REAL NULL;";
                     try { alterPack2.ExecuteNonQuery(); } catch { }
+                }
+
+                // Liquor only: ml a bottle gives beyond its size (e.g. 25). Blank = this liquor gives no extra.
+                // It is an allowance for the stock count, never a change to the bottle size.
+                using (var alterExtra = connection.CreateCommand())
+                {
+                    alterExtra.CommandText = "ALTER TABLE StockItems ADD COLUMN ExtraPerPack REAL NULL;";
+                    try { alterExtra.ExecuteNonQuery(); } catch { }
+                }
+
+                // The stock counted by hand at the start of a day (it becomes that day's Opening on Daily Stock),
+                // with the saved Difference: the counted opening, minus what the books closed the day before with.
+                using (var createOpeningCounts = connection.CreateCommand())
+                {
+                    createOpeningCounts.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS StockOpeningCounts (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            StockItemId INTEGER NOT NULL,
+                            CountDate TEXT NOT NULL,
+                            CountedQuantity REAL NOT NULL,
+                            PreviousClose REAL NOT NULL,
+                            Difference REAL NOT NULL,
+                            CreatedAt TEXT NOT NULL,
+                            FOREIGN KEY (StockItemId) REFERENCES StockItems(Id),
+                            UNIQUE (StockItemId, CountDate)
+                        );";
+                    createOpeningCounts.ExecuteNonQuery();
+                }
+
+                // Difference used to be saved the other way round (previous close - opening). Counts saved that way
+                // are corrected here; once they are right this changes nothing.
+                using (var fixDifference = connection.CreateCommand())
+                {
+                    fixDifference.CommandText = @"
+                        UPDATE StockOpeningCounts
+                        SET Difference = CountedQuantity - PreviousClose
+                        WHERE ABS(Difference - (CountedQuantity - PreviousClose)) > 0.0001;";
+                    try { fixDifference.ExecuteNonQuery(); } catch { }
                 }
 
                 // Enforce name uniqueness among non-deleted rows only (partial index), so a

@@ -35,6 +35,7 @@ namespace POSGardenia.Controls
         }
 
         private TextBox? _target;
+        private PasswordBox? _passwordTarget;    // typing a password: the same keys, written to a PasswordBox
         private KeyboardLayout _layout = KeyboardLayout.Text;
         private ShiftState _shift = ShiftState.Off;
         private bool _symbols;
@@ -69,6 +70,7 @@ namespace POSGardenia.Controls
 
         public void Attach(TextBox target, KeyboardLayout layout)
         {
+            _passwordTarget = null;
             _target = target;
             _layout = layout;
             _symbols = false;
@@ -83,9 +85,23 @@ namespace POSGardenia.Controls
             Rebuild();
         }
 
+        // A password field: the full keyboard, nothing is replaced or shifted automatically.
+        public void Attach(PasswordBox target)
+        {
+            _target = null;
+            _passwordTarget = target;
+            _layout = KeyboardLayout.Text;
+            _symbols = false;
+            _replaceOnFirstKey = false;
+            _shift = ShiftState.Off;
+
+            Rebuild();
+        }
+
         public void Detach()
         {
             _target = null;
+            _passwordTarget = null;
         }
 
         // -----------------------------
@@ -94,6 +110,13 @@ namespace POSGardenia.Controls
 
         private void TypeText(string s)
         {
+            if (_passwordTarget != null)
+            {
+                if (_passwordTarget.MaxLength == 0 || _passwordTarget.Password.Length + s.Length <= _passwordTarget.MaxLength)
+                    _passwordTarget.Password += s;
+                return;
+            }
+
             var tb = _target;
             if (tb == null)
                 return;
@@ -142,6 +165,14 @@ namespace POSGardenia.Controls
 
         private void Backspace()
         {
+            if (_passwordTarget != null)
+            {
+                string typed = _passwordTarget.Password;
+                if (typed.Length > 0)
+                    _passwordTarget.Password = typed.Substring(0, typed.Length - 1);
+                return;
+            }
+
             var tb = _target;
             if (tb == null)
                 return;
@@ -167,6 +198,7 @@ namespace POSGardenia.Controls
         {
             _replaceOnFirstKey = false;
             _target?.Clear();
+            _passwordTarget?.Clear();
         }
 
         private void TypeLetter(string letter)

@@ -1,3 +1,4 @@
+using POSGardenia.Controls;
 using POSGardenia.Models;
 using POSGardenia.Services;
 using System;
@@ -16,35 +17,43 @@ namespace POSGardenia
     {
         private readonly StockService _stockService = new();
 
-        private const string EntryReceived = "Received";
-        private const string EntryAdjust = "Adjust (+ or -)";
-        private const string EntryWastage = "Wastage";
 
         // Handlers are attached here (not in XAML) so nothing fires during InitializeComponent.
         private void WireInventoryControls()
         {
             DailyStockDatePicker.SelectedDate = DateTime.Today;
 
-            StockEntryTypeComboBox.ItemsSource = new[] { EntryReceived, EntryAdjust, EntryWastage };
-            StockEntryTypeComboBox.SelectedIndex = 0;
-
             foreach (var grid in new[] { DailyStockDataGrid, StockItemsDataGrid })
                 grid.AutoGeneratingColumn += StockGrid_AutoGeneratingColumn;
 
             ProductsDataGrid.AutoGeneratingColumn += ProductsGrid_AutoGeneratingColumn;
-            BillHistoryDataGrid.AutoGeneratingColumn += HideNonBrowsableColumns;
+            BillHistoryDataGrid.AutoGeneratingColumn += BillHistoryGrid_AutoGeneratingColumn;
+            ExpensesDataGrid.AutoGeneratingColumn += HideNonBrowsableColumns;
+            ExpensesDataGrid.LoadingRow += ExpensesDataGrid_LoadingRow;
             ItemSalesReportDataGrid.AutoGeneratingColumn += ItemSalesGrid_AutoGeneratingColumn;
 
             DailyStockDataGrid.LoadingRow += DailyStockDataGrid_LoadingRow;
-            DailyStockDataGrid.SelectionChanged += (_, _) =>
-            {
-                if (DailyStockDataGrid.SelectedItem is DailyStockDisplay row)
-                    SelectEntryItem(row.StockItemId);
-            };
 
+            StockItemsDataGrid.BeginningEdit += (_, e) =>
+            {
+                // typing a count needs its own permission: without it the cell simply does not open
+                if (!RequireAccess(AppPermissions.StockCount, "enter the morning manual count"))
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
+                if (e.Row.Item is StockItemDisplay row)
+                    row.BeginCountEdit();
+            };
+            StockItemsDataGrid.CellEditEnding += StockItemsGrid_CellEditEnding;
             DailyStockDatePicker.SelectedDateChanged += (_, _) => RefreshDailyStock();
-            StockEntryItemComboBox.SelectionChanged += (_, _) => OnEntryItemChanged();
-            StockEntryTypeComboBox.SelectionChanged += (_, _) => UpdateEntryHint();
+            StockAddItemComboBox.SelectionChanged += (_, _) => OnAddStockItemChanged();
+            StockItemsDataGrid.SelectionChanged += (_, _) =>
+            {
+                if (StockItemsDataGrid.SelectedItem is StockItemDisplay row && StockAddItemComboBox.ItemsSource is IEnumerable<StockItem> items)
+                    StockAddItemComboBox.SelectedItem = items.FirstOrDefault(i => i.Id == row.Id);
+            };
 
             MainTabControl.SelectionChanged += (s, e) =>
             {
@@ -52,8 +61,17 @@ namespace POSGardenia
                 if (ReferenceEquals(e.OriginalSource, MainTabControl) && InventoryTabItem.IsSelected)
                     RefreshInventory();
             };
+        }
 
-            UpdateEntryHint();
+        // Bill History: one Status column (Paid / Partially Paid / Unpaid / VOID); the plain bill status repeated it.
+        private static void BillHistoryGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
+        {
+            HideNonBrowsableColumns(sender, e);
+            if (e.Cancel)
+                return;
+
+            if (e.PropertyName == nameof(BillHistoryDisplay.PaymentStatus))
+                e.Column.Header = "Status";
         }
 
         private static void ProductsGrid_AutoGeneratingColumn(object? sender, DataGridAutoGeneratingColumnEventArgs e)
@@ -106,11 +124,35 @@ namespace POSGardenia
 
             bool dailySheet = sender is DataGrid grid && grid.Name == nameof(DailyStockDataGrid);
 
+            // The second Counted column of Stock Items is where the count is usually typed: bottles first, then the rest.
+            if (!dailySheet && e.PropertyName == nameof(StockItemDisplay.CountedInPacks))
+                // (no explicit OneWay: WPF would then treat the column as read-only)
+                e.Column = new CountedBottlesColumn { Binding = new Binding(nameof(StockItemDisplay.CountedInPacks)) };
+
+            // Everything is read-only except the two Counted columns of Stock Items (you type the count there).
+            e.Column.IsReadOnly = dailySheet ||
+                (e.PropertyName != nameof(StockItemDisplay.Counted) && e.PropertyName != nameof(StockItemDisplay.CountedInPacks));
+
+            // The cell's text box is tagged "decimal" when it is created (before it takes focus), so the number
+            // keypad opens for it, not the full keyboard.
+            if (e.PropertyName == nameof(StockItemDisplay.Counted) && !dailySheet && e.Column is DataGridTextColumn countedColumn)
+            {
+                var editStyle = new Style(typeof(TextBox), (sender as FrameworkElement)?.TryFindResource(typeof(TextBox)) as Style);
+                editStyle.Setters.Add(new Setter(FrameworkElement.TagProperty, "decimal"));
+                countedColumn.EditingElementStyle = editStyle;
+            }
+
             e.Column.Header = e.PropertyName switch
             {
-                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left (Bottles / Packs)" : "Bottles / Packs",
-                nameof(DailyStockDisplay.SoldInPacks) => "Sold (Bottles / Packs)",
-                nameof(DailyStockDisplay.SalesValue) => "Sales Value",
+                nameof(DailyStockDisplay.InPacks) => dailySheet ? "Left Quantity" : "Current Stock",
+                nameof(DailyStockDisplay.SoldInPacks) => "Sold",
+                nameof(DailyStockDisplay.SalesValue) => "Sales Amount",
+
+                // Stock Items: the stock now, what the books said this morning, and what was counted by hand
+                nameof(StockItemDisplay.InStock) => "Current Stock",
+                nameof(StockItemDisplay.SystemCount) => "Morning Sys Count",
+                nameof(StockItemDisplay.Counted) => "Morning Manual Count",
+                nameof(StockItemDisplay.CountedInPacks) => "Morning Manual Count",
                 _ => Regex.Replace(e.PropertyName, "(?<=[a-z])(?=[A-Z])", " ")
             };
 
@@ -118,8 +160,22 @@ namespace POSGardenia
                 textColumn.Binding is Binding binding &&
                 (e.PropertyType == typeof(decimal) || e.PropertyType == typeof(decimal?)))
             {
-                binding.StringFormat = e.PropertyName == nameof(DailyStockDisplay.SalesValue) ? "#,0.00" : "0.##";
+                binding.StringFormat = e.PropertyName switch
+                {
+                    nameof(DailyStockDisplay.SalesValue) => "#,0.00",
+                    nameof(DailyStockDisplay.Difference) => "+0.##;-0.##;0",
+                    _ => "0.##"
+                };
             }
+        }
+
+        // Stock purchases have a light blue row so they stand apart from the normal expenses.
+        private static void ExpensesDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
+        {
+            if (e.Row.Item is Expense expense && expense.IsStockPurchase)
+                e.Row.Background = new SolidColorBrush(Color.FromRgb(0xCF, 0xE8, 0xFC));
+            else
+                e.Row.ClearValue(DataGridRow.BackgroundProperty);
         }
 
         private static void DailyStockDataGrid_LoadingRow(object? sender, DataGridRowEventArgs e)
@@ -139,7 +195,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load inventory.\n" + ex.Message);
+                AppMessage.Show("Failed to load inventory.\n" + ex.Message);
             }
         }
 
@@ -171,6 +227,7 @@ namespace POSGardenia
                         Item = r.StockItemName,
                         Unit = r.TrackingUnit,
                         Opening = r.OpeningQuantity,
+                        Difference = r.Difference,
                         Received = r.ReceivedQuantity,
                         Sold = r.SoldQuantity,
                         Adjusted = r.AdjustedQuantity,
@@ -192,163 +249,142 @@ namespace POSGardenia
                 int negative = display.Count(d => d.IsNegative);
 
                 DailyStockSummaryTextBlock.Text =
-                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   Sales value: {display.Sum(d => d.SalesValue):#,0.00}";
+                    $"{date:yyyy-MM-dd}: {display.Count} items, {negative} negative.   Sales amount: {display.Sum(d => d.SalesValue):#,0.00}";
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load daily stock.\n" + ex.Message);
+                AppMessage.Show("Failed to load daily stock.\n" + ex.Message);
             }
         }
 
-        // -----------------------------
-        // Stock entries (Received / Adjust / Wastage)
-        // -----------------------------
-
-        private void UpdateEntryHint()
+        // Typing a count into either Counted column saves it as today's opening count; clearing it removes it.
+        private void StockItemsGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
         {
-            if (StockEntryHintTextBlock == null)
+            if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not StockItemDisplay row)
                 return;
 
-            StockEntryHintTextBlock.Text = StockEntryTypeComboBox.SelectedItem as string switch
+            if (_currentUser?.Can(AppPermissions.StockCount) != true)
             {
-                EntryReceived => "Received: stock delivered or bought. Sales are taken from bills automatically - do not enter them here.",
-                EntryAdjust => "Adjust: correct the count. Use a plus to add stock, a minus (e.g. -50) to remove it.",
-                EntryWastage => "Wastage: breakage, spillage or free servings. Enter a positive amount; it is taken out of stock.",
-                _ => ""
-            };
-        }
-
-        private void SelectEntryItem(int stockItemId)
-        {
-            if (StockEntryItemComboBox.ItemsSource is IEnumerable<StockItem> items)
-                StockEntryItemComboBox.SelectedItem = items.FirstOrDefault(i => i.Id == stockItemId);
-        }
-
-        // The quantity is always in the item's own unit (ml / bottle / unit); say which one.
-        private void OnEntryItemChanged()
-        {
-            var item = StockEntryItemComboBox.SelectedItem as StockItem;
-            StockEntryQuantityLabel.Text = item == null ? "Quantity" : $"Quantity ({item.TrackingUnit})";
-            LoadPackEditor(item);
-        }
-
-        // -----------------------------
-        // Bottle / pack size of the selected item
-        // -----------------------------
-
-        private void LoadPackEditor(StockItem? item)
-        {
-            if (PackItemTextBlock == null)
-                return;
-
-            bool needsPack = item != null && !PackFormatter.IsCountedInBottles(item.TrackingUnit);
-            PackSizeTextBox.IsEnabled = needsPack;
-            SavePackSizeButton.IsEnabled = needsPack;
-
-            if (item == null)
-            {
-                PackItemTextBlock.Text = "Select an item in the list above (or in Item) to set its bottle / pack size.";
-                PackNameTextBox.Text = "";
-                PackSizeTextBox.Text = "";
-                PackUnitTextBlock.Text = "";
+                e.Cancel = true;
                 return;
             }
 
-            PackNameTextBox.Text = PackFormatter.PackNameFor(item.TrackingUnit);
-            PackUnitTextBlock.Text = item.TrackingUnit;
-
-            if (!needsPack)
-            {
-                PackItemTextBlock.Text = $"{item.Name} (counted in bottles) - no bottle / pack size is needed.";
-                PackSizeTextBox.Text = "";
-                return;
-            }
-
-            PackItemTextBlock.Text = $"{item.Name} (counted in {item.TrackingUnit})";
-            PackSizeTextBox.Text = item.PackSize?.ToString("0.##") ?? "";
-        }
-
-        private void SavePackSize_Click(object sender, RoutedEventArgs e)
-        {
             try
             {
-                if (StockEntryItemComboBox.SelectedItem is not StockItem item)
+                decimal? total;
+
+                if (e.Column is CountedBottlesColumn)
                 {
-                    MessageBox.Show("Select an item first.");
+                    // bottles first, then the rest
+                    if (!row.TryGetCountedTotal(out total, out string error))
+                    {
+                        AppMessage.Show(error);
+                        e.Cancel = true;
+                        return;
+                    }
+                }
+                else if (e.EditingElement is TextBox box)
+                {
+                    string text = box.Text?.Trim() ?? "";
+
+                    if (text.Length == 0)
+                    {
+                        total = null;
+                    }
+                    else if (decimal.TryParse(text, out decimal counted) && counted >= 0)
+                    {
+                        total = counted;
+                    }
+                    else
+                    {
+                        AppMessage.Show("Morning Manual Count: enter a number (0 or more), or leave it blank.");
+                        e.Cancel = true;
+                        return;
+                    }
+                }
+                else
+                {
                     return;
                 }
 
-                decimal? size = null;
-                if (!string.IsNullOrWhiteSpace(PackSizeTextBox.Text))
+                if (total.HasValue)
+                    _stockService.SaveOpeningCount(row.Id, DateTime.Today, total.Value);
+                else if (row.Counted.HasValue)
+                    _stockService.ClearOpeningCount(row.Id, DateTime.Today);
+                else
+                    return;
+
+                // refresh after the cell has finished committing
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (!decimal.TryParse(PackSizeTextBox.Text.Trim(), out decimal parsed) || parsed <= 0)
+                    RefreshStockItems();
+                    RefreshDailyStock();
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            }
+            catch (Exception ex)
+            {
+                AppMessage.Show(ex.Message);
+                e.Cancel = true;
+            }
+        }
+
+        // Stock Items tab: the quantity label follows the unit of the chosen item.
+        private void OnAddStockItemChanged()
+        {
+            var item = StockAddItemComboBox.SelectedItem as StockItem;
+            StockAddQuantityLabel.Text = item == null ? "Quantity" : $"Quantity ({item.TrackingUnit})";
+        }
+
+        // Stock only comes in as "received", always dated today (the sheet for any day can still be viewed on Daily Stock).
+        private void AddStock_Click(object sender, RoutedEventArgs e)
+        {
+            if (!RequireAccess(AppPermissions.StockAdd, "add stock"))
+                return;
+
+            try
+            {
+                if (StockAddItemComboBox.SelectedItem is not StockItem item)
+                {
+                    AppMessage.Show("Select an item.");
+                    return;
+                }
+
+                if (!decimal.TryParse(StockAddQuantityTextBox.Text?.Trim(), out decimal quantity) || quantity <= 0)
+                {
+                    AppMessage.Show("Enter a quantity greater than zero.");
+                    return;
+                }
+
+                string? note = string.IsNullOrWhiteSpace(StockAddNoteTextBox.Text) ? null : StockAddNoteTextBox.Text.Trim();
+
+                decimal? purchase = null;
+                if (!string.IsNullOrWhiteSpace(StockAddCostTextBox.Text))
+                {
+                    if (!decimal.TryParse(StockAddCostTextBox.Text.Trim(), out decimal paid) || paid <= 0)
                     {
-                        MessageBox.Show("Per bottle/pack size: enter a number greater than zero, or leave it blank to remove it.");
+                        AppMessage.Show("Purchase amount: enter a number greater than zero, or leave it blank.");
                         return;
                     }
 
-                    size = parsed;
+                    purchase = paid;
                 }
 
-                _stockService.SetPack(item.Id, size);
+                _stockService.ReceiveStock(item.Id, quantity, note, DateTime.Today, purchase);
 
-                RefreshStockItems();      // reloads the item list (and this editor) with the saved size
-                RefreshDailyStock();
-
-                StockEntryHintTextBlock.Text = size.HasValue
-                    ? $"Saved: 1 {PackFormatter.PackNameFor(item.TrackingUnit)} = {size:0.##} {item.TrackingUnit} for {item.Name}."
-                    : $"Bottle / pack size removed for {item.Name}.";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-        }
-
-        private void AddStockEntry_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (StockEntryItemComboBox.SelectedItem is not StockItem item)
-                {
-                    MessageBox.Show("Select an item.");
-                    return;
-                }
-
-                if (!decimal.TryParse(StockEntryQuantityTextBox.Text?.Trim(), out decimal quantity) || quantity == 0)
-                {
-                    MessageBox.Show("Enter a quantity (not zero).");
-                    return;
-                }
-
-                decimal total = quantity;   // always in the item's own unit
-                string? note = string.IsNullOrWhiteSpace(StockEntryNoteTextBox.Text) ? null : StockEntryNoteTextBox.Text.Trim();
-                var date = SelectedStockDate;
-                string type = StockEntryTypeComboBox.SelectedItem as string ?? EntryReceived;
-
-                switch (type)
-                {
-                    case EntryReceived:
-                        _stockService.ReceiveStock(item.Id, total, note, date);
-                        break;
-                    case EntryAdjust:
-                        _stockService.AdjustStock(item.Id, total, note, date);
-                        break;
-                    case EntryWastage:
-                        _stockService.RecordWastage(item.Id, total, note, date);
-                        break;
-                }
-
-                StockEntryQuantityTextBox.Clear();
-                StockEntryNoteTextBox.Clear();
-                RefreshDailyStock();
+                StockAddQuantityTextBox.Clear();
+                StockAddCostTextBox.Clear();
+                StockAddNoteTextBox.Clear();
                 RefreshStockItems();
+                RefreshDailyStock();
+                LoadExpensesForSelectedDate();
 
-                StockEntryHintTextBlock.Text = $"Saved: {type} {total:+0.##;-0.##} {item.TrackingUnit} for {item.Name} on {date:yyyy-MM-dd}.";
+                StockAddResultTextBlock.Text = purchase.HasValue
+                    ? $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}. {purchase.Value:#,0.00} saved as today's expense."
+                    : $"Added {quantity:0.##} {item.TrackingUnit} to {item.Name}.";
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                AppMessage.Show(ex.Message);
             }
         }
 
@@ -366,13 +402,13 @@ namespace POSGardenia
             if (selectedId.HasValue)
                 StockItemsDataGrid.SelectedItem = items.FirstOrDefault(i => i.Id == selectedId.Value);
 
-            // Entry item list: active items only; keep the current choice.
-            int? entryId = (StockEntryItemComboBox.SelectedItem as StockItem)?.Id;
+            // Active items only; keep the current choice, and never leave the cards blank.
             var active = _stockService.GetActiveStockItems();
-            StockEntryItemComboBox.ItemsSource = null;
-            StockEntryItemComboBox.ItemsSource = active;
-            if (entryId.HasValue)
-                SelectEntryItem(entryId.Value);
+            int? addId = (StockAddItemComboBox.SelectedItem as StockItem)?.Id;
+            StockAddItemComboBox.ItemsSource = null;
+            StockAddItemComboBox.ItemsSource = active;
+            StockAddItemComboBox.SelectedItem =
+                (addId.HasValue ? active.FirstOrDefault(i => i.Id == addId.Value) : null) ?? active.FirstOrDefault();
         }
 
     }

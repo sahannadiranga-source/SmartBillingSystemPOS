@@ -1,3 +1,4 @@
+using POSGardenia.Controls;
 using POSGardenia.Data;
 using POSGardenia.Models;
 using POSGardenia.Services;
@@ -81,6 +82,9 @@ namespace POSGardenia
 
             CartDataGrid.ItemsSource = _cart;
             RefreshCartView();
+
+            // last: nothing can be used until someone signs in
+            InitAccounts();
         }
 
         // -----------------------------
@@ -97,6 +101,33 @@ namespace POSGardenia
             foreach (var category in categories)
             {
                 CategoryButtonsPanel.Children.Add(CreateCategoryButton(category.Name, category.Id));
+            }
+
+            // a category that was deactivated or deleted can no longer be the picked one: go back to All
+            if (_selectedCategoryId.HasValue && !categories.Any(c => c.Id == _selectedCategoryId.Value))
+            {
+                _selectedCategoryId = null;
+                SelectedCategoryTextBlock.Text = "All";
+                RenderProductButtons();
+            }
+
+            UpdateCategoryButtonLooks();
+        }
+
+        // Only the picked category is blue; the others are grey. The category is kept in the button's Tag.
+        private void UpdateCategoryButtonLooks()
+        {
+            foreach (var child in CategoryButtonsPanel.Children)
+            {
+                if (child is not Button button)
+                    continue;
+
+                bool selected = (button.Tag as int?) == _selectedCategoryId;
+
+                button.Background = selected
+                    ? new SolidColorBrush(Color.FromRgb(31, 111, 235))
+                    : new SolidColorBrush(Color.FromRgb(226, 232, 240));
+                button.Foreground = selected ? Brushes.White : Brushes.Black;
             }
         }
 
@@ -124,10 +155,7 @@ namespace POSGardenia
                 Margin = new Thickness(0, 0, 0, 12),
                 FontSize = 17,
                 Template = TouchTemplate(),
-                Background = categoryId == null
-                    ? new SolidColorBrush(Color.FromRgb(31, 111, 235))
-                    : new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-                Foreground = categoryId == null ? Brushes.White : Brushes.Black,
+                Tag = categoryId,
                 BorderThickness = new Thickness(0),
                 FontWeight = FontWeights.SemiBold,
                 Cursor = System.Windows.Input.Cursors.Hand
@@ -138,6 +166,7 @@ namespace POSGardenia
                 _selectedCategoryId = categoryId;
                 SelectedCategoryTextBlock.Text = categoryId == null ? "All" : text;
                 RenderProductButtons();
+                UpdateCategoryButtonLooks();
             };
 
             return button;
@@ -237,9 +266,13 @@ namespace POSGardenia
                     : 0;
                 decimal due = Math.Max(0, cartTotal - alreadyPaid);
 
+                PosDueTextBlock.Text = $"Due: {due:F2}";
+
+                // a bill that already has payments also says what it totals and what was paid
                 PosPaymentSummaryTextBlock.Text = alreadyPaid > 0
-                    ? $"Bill {cartTotal:F2} | Paid {alreadyPaid:F2} | Due {due:F2}"
-                    : $"Due {due:F2}";
+                    ? $"Bill {cartTotal:F2} | Paid {alreadyPaid:F2}"
+                    : "";
+                PosPaymentSummaryTextBlock.Visibility = alreadyPaid > 0 ? Visibility.Visible : Visibility.Collapsed;
                 PosPayAmountTextBox.Text = due.ToString("F2");
 
                 if (_currentTargetBillId.HasValue)
@@ -255,7 +288,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to refresh cart view.\n" + ex.Message);
+                AppMessage.Show("Failed to refresh cart view.\n" + ex.Message);
             }
         }
         private void AddProductToCart(Product product)
@@ -264,7 +297,7 @@ namespace POSGardenia
             {
                 if (product == null)
                 {
-                    MessageBox.Show("Invalid product.");
+                    AppMessage.Show("Invalid product.");
                     return;
                 }
 
@@ -292,14 +325,14 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to add product to cart.\n" + ex.Message);
+                AppMessage.Show("Failed to add product to cart.\n" + ex.Message);
             }
         }
         private void RemoveSelectedCartItem_Click(object sender, RoutedEventArgs e)
         {
             if (CartDataGrid.SelectedItem is not PosCartLine selected)
             {
-                MessageBox.Show("Select a cart item first.");
+                AppMessage.Show("Select a cart item first.");
                 return;
             }
 
@@ -307,10 +340,13 @@ namespace POSGardenia
             RefreshCartView();
         }
 
+        // Empties the cart AND lets go of the open bill that was picked, so the screen goes back to a new sale
+        // (the bill dropdown is cleared too: otherwise new items could still be added to that bill, and the same
+        // bill could not be picked again). Items already saved on that bill are not touched.
         private void ClearCart_Click(object sender, RoutedEventArgs e)
         {
             _cart.Clear();
-            _currentTargetBillId = null;
+            ResetPosBillSelection();
             RefreshCartView();
         }
 
@@ -318,7 +354,7 @@ namespace POSGardenia
         {
             if (_cart.Count == 0)
             {
-                MessageBox.Show("Cart is empty.");
+                AppMessage.Show("Cart is empty.");
                 return false;
             }
 
@@ -386,7 +422,7 @@ namespace POSGardenia
 
                 if (PosTableComboBox.SelectedItem is not DiningTable selectedTable)
                 {
-                    MessageBox.Show("Select a table.");
+                    AppMessage.Show("Select a table.");
                     return;
                 }
 
@@ -403,7 +439,7 @@ namespace POSGardenia
                 SendKitchenTicket(billId, selectedTable.TableName);
                 string visibleBillNo = GetVisibleBillNumber(billId);
 
-                MessageBox.Show($"Table bill created successfully.\nTable: {selectedTable.TableName}\nBill No: {visibleBillNo}");
+                AppMessage.Show($"Table bill created successfully.\nTable: {selectedTable.TableName}\nBill No: {visibleBillNo}");
 
                 _cart.Clear();
                 _currentTargetBillId = null;
@@ -415,7 +451,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to create table bill.\n" + ex.Message);
+                AppMessage.Show("Failed to create table bill.\n" + ex.Message);
             }
         }
         private void AddCartToExistingBill_Click(object sender, RoutedEventArgs e)
@@ -436,13 +472,13 @@ namespace POSGardenia
                     SaveCartItemsToBill(targetBillId);
                     SendKitchenTicket(targetBillId, tableName);
                     string visibleBillNo = GetVisibleBillNumber(targetBillId);
-                    MessageBox.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
+                    AppMessage.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
                 }
                 else
                 {
                     if (PosExistingBillComboBox.SelectedItem is not OpenBillDisplay selectedBill)
                     {
-                        MessageBox.Show("Select an existing open bill.");
+                        AppMessage.Show("Select an existing open bill.");
                         return;
                     }
 
@@ -452,7 +488,7 @@ namespace POSGardenia
                     SaveCartItemsToBill(targetBillId);
                     SendKitchenTicket(targetBillId, tableName);
                     string visibleBillNo = selectedBill.VisibleBillNumber;
-                    MessageBox.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
+                    AppMessage.Show($"Items added successfully.\nTable: {tableName}\nBill No: {visibleBillNo}");
                 }
 
                 _cart.Clear();
@@ -464,7 +500,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to add items to existing bill.\n" + ex.Message);
+                AppMessage.Show("Failed to add items to existing bill.\n" + ex.Message);
             }
         }
         private void CreateQuickSaleAndPay_Click(object sender, RoutedEventArgs e)
@@ -485,7 +521,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load open bills in tables tab.\n" + ex.Message);
+                AppMessage.Show("Failed to load open bills in tables tab.\n" + ex.Message);
             }
         }
 
@@ -505,18 +541,24 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to refresh tables tab.\n" + ex.Message);
+                AppMessage.Show("Failed to refresh tables tab.\n" + ex.Message);
             }
         }
 
 
         private void AddMoreItemsFromTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesAddItems, "add more items to a bill"))
+                return;
+
+            if (!RequireAccess(AppPermissions.Pos, "open POS"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
                 {
-                    MessageBox.Show("Select an open bill first.");
+                    AppMessage.Show("Select an open bill first.");
                     return;
                 }
 
@@ -533,7 +575,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to prepare Add More Items flow.\n" + ex.Message);
+                AppMessage.Show("Failed to prepare Add More Items flow.\n" + ex.Message);
             }
         }
 
@@ -583,17 +625,20 @@ namespace POSGardenia
 
         private void PayNowFromPos_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.PosPay, "take payments"))
+                return;
+
             try
             {
                 if (_cart == null || _cart.Count == 0)
                 {
-                    MessageBox.Show("Cart is empty.");
+                    AppMessage.Show("Cart is empty.");
                     return;
                 }
 
                 if (PosQuickPaymentMethodComboBox.SelectedItem is not string paymentMethod || string.IsNullOrWhiteSpace(paymentMethod))
                 {
-                    MessageBox.Show("Select payment method.");
+                    AppMessage.Show("Select payment method.");
                     return;
                 }
 
@@ -607,7 +652,7 @@ namespace POSGardenia
                 // the payment (so sales and reports stay exact); the rest is given back as change.
                 if (!decimal.TryParse(PosPayAmountTextBox.Text?.Trim(), out decimal received) || received <= 0)
                 {
-                    MessageBox.Show("Enter the amount received.");
+                    AppMessage.Show("Enter the amount received.");
                     return;
                 }
 
@@ -615,12 +660,25 @@ namespace POSGardenia
 
                 if (received > dueBefore + 0.01m && !string.Equals(paymentMethod, "CASH", StringComparison.OrdinalIgnoreCase))
                 {
-                    MessageBox.Show($"A {paymentMethod} payment cannot be more than the amount due ({dueBefore:F2}).");
+                    AppMessage.Show($"A {paymentMethod} payment cannot be more than the amount due ({dueBefore:F2}).");
                     return;
                 }
 
                 decimal amount = Math.Min(received, dueBefore);
                 decimal change = received - amount;
+
+                // A last look before the payment is recorded. Cancel leaves the cart and bill exactly as they are.
+                string summary =
+                    $"Amount due: {dueBefore:F2}\n" +
+                    $"Received ({paymentMethod}): {received:F2}";
+
+                if (change > 0)
+                    summary += $"\n\nChange to give: {change:F2}";
+                else if (amount < dueBefore - 0.01m)
+                    summary += $"\n\nBalance left on the bill: {dueBefore - amount:F2}";
+
+                if (!AppMessage.Confirm("Confirm payment", summary, "Confirm Payment", "Cancel"))
+                    return;
 
                 int billId;
                 string saleTypeText;
@@ -679,7 +737,7 @@ namespace POSGardenia
                     ? $"\nReceived: {received:F2}\n\nCHANGE: {change:F2}"
                     : "";
 
-                MessageBox.Show(
+                AppMessage.Show(
   $"Payment completed.\nType: {saleTypeText}\nTable: {tableName}\nBill No: {visibleBillNo}\nTotal: {total:F2}\nPaid now: {amount:F2} ({paymentMethod}){dueText}{changeText}");
 
                 var receipt = BuildReceiptData(billId, saleTypeText, tableName);
@@ -696,7 +754,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to complete payment.\n" + ex.Message);
+                AppMessage.Show("Failed to complete payment.\n" + ex.Message);
             }
         }
         
@@ -730,13 +788,16 @@ namespace POSGardenia
         // Adds a new category, or updates the one loaded into the form (selected in the list).
         private void SaveCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             try
             {
                 var name = CategoryNameTextBox.Text.Trim();
 
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    MessageBox.Show("Enter category name.");
+                    AppMessage.Show("Enter category name.");
                     return;
                 }
 
@@ -748,25 +809,25 @@ namespace POSGardenia
                 {
                     if (existing != null)
                     {
-                        MessageBox.Show(existing.IsActive
+                        AppMessage.Show(existing.IsActive
                             ? $"A category named '{name}' already exists."
                             : $"A category named '{name}' already exists but is deactivated. Select it and click Reactivate Selected instead of creating a new one.");
                         return;
                     }
 
                     _categoryRepository.Add(name, kitchen, buttonColor);
-                    MessageBox.Show("Category saved.");
+                    AppMessage.Show("Category saved.");
                 }
                 else
                 {
                     if (existing != null && existing.Id != _selectedManagementCategory.Id)
                     {
-                        MessageBox.Show($"A category named '{name}' already exists.");
+                        AppMessage.Show($"A category named '{name}' already exists.");
                         return;
                     }
 
                     _categoryRepository.Update(_selectedManagementCategory.Id, name, kitchen, buttonColor);
-                    MessageBox.Show("Category updated.");
+                    AppMessage.Show("Category updated.");
                 }
 
                 ClearCategoryForm();
@@ -774,7 +835,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save/update category.\n" + ex.Message);
+                AppMessage.Show("Failed to save/update category.\n" + ex.Message);
             }
         }
 
@@ -829,9 +890,12 @@ namespace POSGardenia
 
         private void DeactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
-                MessageBox.Show("Select a category first.");
+                AppMessage.Show("Select a category first.");
                 return;
             }
 
@@ -843,14 +907,17 @@ namespace POSGardenia
             LoadPosCategories();
             LoadPosProducts();
 
-            MessageBox.Show("Category deactivated.");
+            AppMessage.Show("Category deactivated.");
         }
 
         private void ReactivateSelectedCategory_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesEdit, "change categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
-                MessageBox.Show("Select a category first.");
+                AppMessage.Show("Select a category first.");
                 return;
             }
 
@@ -862,18 +929,21 @@ namespace POSGardenia
             LoadPosCategories();
             LoadPosProducts();
 
-            MessageBox.Show("Category reactivated.");
+            AppMessage.Show("Category reactivated.");
         }
 
         private void DeleteSelectedCategoryPermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.CategoriesDelete, "delete categories"))
+                return;
+
             if (CategoriesDataGrid.SelectedItem is not Category selectedCategory)
             {
-                MessageBox.Show("Select a category first.");
+                AppMessage.Show("Select a category first.");
                 return;
             }
 
-            var confirm = MessageBox.Show(
+            var confirm = AppMessage.Show(
                 $"Remove category '{selectedCategory.Name}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
                 "Confirm Delete",
                 MessageBoxButton.YesNo);
@@ -888,30 +958,33 @@ namespace POSGardenia
             LoadCategoriesGrid();
             LoadPosCategories();
 
-            MessageBox.Show("Category deleted.");
+            AppMessage.Show("Category deleted.");
         }
 
         private void SaveProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 var name = ProductNameTextBox.Text?.Trim() ?? "";
 
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    MessageBox.Show("Enter product name.");
+                    AppMessage.Show("Enter product name.");
                     return;
                 }
 
                 if (CategoryComboBox.SelectedItem is not Category selectedCategory)
                 {
-                    MessageBox.Show("Select a category.");
+                    AppMessage.Show("Select a category.");
                     return;
                 }
 
                 if (!decimal.TryParse(PriceTextBox.Text?.Trim(), out decimal price) || price < 0)
                 {
-                    MessageBox.Show("Enter valid price.");
+                    AppMessage.Show("Enter valid price.");
                     return;
                 }
 
@@ -924,7 +997,7 @@ namespace POSGardenia
                 var existingProduct = _productRepository.GetByName(name);
                 if (existingProduct != null)
                 {
-                    MessageBox.Show(existingProduct.IsActive
+                    AppMessage.Show(existingProduct.IsActive
                         ? $"A product named '{name}' already exists."
                         : $"A product named '{name}' already exists but is deactivated. Select it and click Reactivate Selected Product instead of creating a new one.");
                     return;
@@ -935,8 +1008,11 @@ namespace POSGardenia
                     if (!TryReadTrackedSettings(name, out string mainItem, out string unit, out decimal used))
                         return;
 
+                    if (!TryReadPackSize(out bool setPack, out decimal? packSize))
+                        return;
+
                     _productSetupService.CreateTrackedProduct(
-                        name, selectedCategory.Id, price, mainItem, unit, used);
+                        name, selectedCategory.Id, price, mainItem, unit, used, setPack, packSize);
                 }
                 else
                 {
@@ -954,11 +1030,11 @@ namespace POSGardenia
                 LoadPosProducts();
                 LoadMainItemOptions();
 
-                MessageBox.Show("Product saved.");
+                AppMessage.Show("Product saved.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save/update product.\n" + ex.Message);
+                AppMessage.Show("Failed to save/update product.\n" + ex.Message);
             }
         }
 
@@ -967,7 +1043,7 @@ namespace POSGardenia
             var existingProduct = _productRepository.GetByName(name);
             if (existingProduct != null && existingProduct.Id != _selectedManagementProduct!.Id)
             {
-                MessageBox.Show(existingProduct.IsActive
+                AppMessage.Show(existingProduct.IsActive
                     ? $"A product named '{name}' already exists."
                     : $"A product named '{name}' already exists but is deactivated. Select it and click Reactivate Selected Product instead of creating a new one.");
                 return;
@@ -976,10 +1052,15 @@ namespace POSGardenia
             string? mainItem = null;
             string unit = "";
             decimal used = 0;
+            bool setPack = false;
+            decimal? packSize = null;
 
             if (TrackStockCheckBox.IsChecked == true)
             {
                 if (!TryReadTrackedSettings(name, out string trackedMainItem, out unit, out used))
+                    return;
+
+                if (!TryReadPackSize(out setPack, out packSize))
                     return;
 
                 mainItem = trackedMainItem;
@@ -994,14 +1075,14 @@ namespace POSGardenia
                 IsActive = _selectedManagementProduct.IsActive   // not changed by an edit: use Deactivate / Reactivate
             };
 
-            _productSetupService.UpdateProduct(updatedProduct, mainItem, unit, used);
+            _productSetupService.UpdateProduct(updatedProduct, mainItem, unit, used, setPack, packSize);
 
             ClearProductForm();
             LoadProducts();
             LoadPosProducts();
             LoadMainItemOptions();
 
-            MessageBox.Show("Product updated.");
+            AppMessage.Show("Product updated.");
         }
 
         // Reads Main item / Stock unit / Stock used per sale. A blank main item means "this product itself".
@@ -1013,18 +1094,38 @@ namespace POSGardenia
 
             if (unit.Length == 0)
             {
-                MessageBox.Show("Enter the stock unit (for example ml, bottle, unit).");
+                AppMessage.Show("Enter the stock unit (for example ml, bottle, unit).");
                 return false;
             }
 
             return TryReadPositiveNumber(StockUsedPerSaleTextBox, "Stock used per sale", out used);
         }
 
+        // Per bottle/pack size of the main item. setPack = false when the field is not in use (not tracked,
+        // or counted in bottles): the saved size is then left as it is. Blank = no size.
+        private bool TryReadPackSize(out bool setPack, out decimal? size)
+        {
+            setPack = PackSizeTextBox.IsEnabled;
+            size = null;
+
+            if (!setPack || string.IsNullOrWhiteSpace(PackSizeTextBox.Text))
+                return true;
+
+            if (!decimal.TryParse(PackSizeTextBox.Text.Trim(), out decimal value) || value <= 0)
+            {
+                AppMessage.Show("Per bottle/pack size: enter a number greater than zero, or leave it blank.");
+                return false;
+            }
+
+            size = value;
+            return true;
+        }
+
         private static bool TryReadPositiveNumber(TextBox box, string label, out decimal value)
         {
             if (!decimal.TryParse(box.Text?.Trim(), out value) || value <= 0)
             {
-                MessageBox.Show($"{label}: enter a number greater than zero.");
+                AppMessage.Show($"{label}: enter a number greater than zero.");
                 return false;
             }
 
@@ -1067,6 +1168,9 @@ namespace POSGardenia
             MainItemComboBox.AddHandler(
                 System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
                 new TextChangedEventHandler((_, _) => UpdateMainItemUnit()));
+            MainItemUnitComboBox.AddHandler(
+                System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+                new TextChangedEventHandler((_, _) => UpdatePackField(CurrentExistingMainItem())));
 
             LoadMainItemOptions();
             ResetStockSetupFields();
@@ -1078,6 +1182,8 @@ namespace POSGardenia
             MainItemComboBox.Text = "";
             MainItemUnitComboBox.Text = "unit";
             StockUsedPerSaleTextBox.Text = "1";
+            PackSizeTextBox.Text = "";
+            _packFilledFor = 0;
 
             UpdateTrackStockEnabled();
         }
@@ -1103,18 +1209,59 @@ namespace POSGardenia
             if (MainItemComboBox == null || MainItemUnitComboBox == null || TrackStockCheckBox == null)
                 return;
 
-            var typed = MainItemComboBox.Text?.Trim() ?? "";
+            var existing = CurrentExistingMainItem();
 
-            if (_mainItems.TryGetValue(typed, out var existing))
+            if (existing != null)
             {
                 MainItemUnitComboBox.Text = existing.TrackingUnit;
                 MainItemUnitComboBox.IsEnabled = false;
-
             }
             else
             {
                 MainItemUnitComboBox.IsEnabled = TrackStockCheckBox.IsChecked == true;
             }
+
+            UpdatePackField(existing);
+        }
+
+        private StockItem? CurrentExistingMainItem()
+        {
+            var typed = MainItemComboBox?.Text?.Trim() ?? "";
+            return _mainItems.TryGetValue(typed, out var existing) ? existing : null;
+        }
+
+        // Which existing main item the size box was last filled from (0 = none), so typing a size is never overwritten.
+        private int _packFilledFor;
+
+        // The size box is only in use for a tracked item that is not counted in bottles. Choosing an existing
+        // main item shows its saved size; going back to a new name clears it.
+        private void UpdatePackField(StockItem? existing)
+        {
+            if (PackSizeTextBox == null || MainItemUnitComboBox == null || TrackStockCheckBox == null)
+                return;
+
+            string unit = MainItemUnitComboBox.Text?.Trim() ?? "";
+            bool allowed = TrackStockCheckBox.IsChecked == true && unit.Length > 0 && !PackFormatter.IsCountedInBottles(unit);
+
+            PackSizeTextBox.IsEnabled = allowed;
+            PackUnitTextBlock.Text = allowed ? unit : "";
+
+            if (existing != null)
+            {
+                if (_packFilledFor != existing.Id)
+                {
+                    PackSizeTextBox.Text = existing.PackSize?.ToString("0.##") ?? "";
+                    _packFilledFor = existing.Id;
+                }
+            }
+            else if (_packFilledFor != 0)
+            {
+                PackSizeTextBox.Text = "";
+                _packFilledFor = 0;
+            }
+
+            if (!allowed)
+                PackSizeTextBox.Text = "";
         }
 
         private void UpdateTrackStockEnabled()
@@ -1135,11 +1282,14 @@ namespace POSGardenia
 
         private void DeactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
                 {
-                    MessageBox.Show("Select a product first.");
+                    AppMessage.Show("Select a product first.");
                     return;
                 }
 
@@ -1149,21 +1299,24 @@ namespace POSGardenia
                 LoadProducts();
                 LoadPosProducts();
 
-                MessageBox.Show("Product deactivated.");
+                AppMessage.Show("Product deactivated.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to deactivate product.\n" + ex.Message);
+                AppMessage.Show("Failed to deactivate product.\n" + ex.Message);
             }
         }
 
         private void ReactivateSelectedProduct_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsEdit, "change products"))
+                return;
+
             try
             {
                 if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
                 {
-                    MessageBox.Show("Select a product first.");
+                    AppMessage.Show("Select a product first.");
                     return;
                 }
 
@@ -1173,23 +1326,26 @@ namespace POSGardenia
                 LoadProducts();
                 LoadPosProducts();
 
-                MessageBox.Show("Product reactivated.");
+                AppMessage.Show("Product reactivated.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to reactivate product.\n" + ex.Message);
+                AppMessage.Show("Failed to reactivate product.\n" + ex.Message);
             }
         }
 
         private void DeleteSelectedProductPermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ProductsDelete, "delete products"))
+                return;
+
             if (ProductsDataGrid.SelectedItem is not ProductDisplay selectedProduct)
             {
-                MessageBox.Show("Select a product first.");
+                AppMessage.Show("Select a product first.");
                 return;
             }
 
-            var confirm = MessageBox.Show(
+            var confirm = AppMessage.Show(
                 $"Remove product '{selectedProduct.Name}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
                 "Confirm Delete",
                 MessageBoxButton.YesNo);
@@ -1203,16 +1359,19 @@ namespace POSGardenia
             LoadProducts();
             LoadPosProducts();
 
-            MessageBox.Show("Product deleted.");
+            AppMessage.Show("Product deleted.");
         }
 
         private void SaveTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             var tableName = TableNameTextBox.Text.Trim();
 
             if (string.IsNullOrWhiteSpace(tableName))
             {
-                MessageBox.Show("Enter table name.");
+                AppMessage.Show("Enter table name.");
                 return;
             }
 
@@ -1222,14 +1381,17 @@ namespace POSGardenia
             LoadTables();
             LoadPosTables();
 
-            MessageBox.Show("Table saved.");
+            AppMessage.Show("Table saved.");
         }
 
         private void DeactivateSelectedTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
-                MessageBox.Show("Select a table first.");
+                AppMessage.Show("Select a table first.");
                 return;
             }
 
@@ -1238,14 +1400,17 @@ namespace POSGardenia
             LoadTables();
             LoadPosTables();
 
-            MessageBox.Show("Table deactivated.");
+            AppMessage.Show("Table deactivated.");
         }
 
         private void ReactivateSelectedTable_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterEdit, "change tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
-                MessageBox.Show("Select a table first.");
+                AppMessage.Show("Select a table first.");
                 return;
             }
 
@@ -1254,18 +1419,21 @@ namespace POSGardenia
             LoadTables();
             LoadPosTables();
 
-            MessageBox.Show("Table reactivated.");
+            AppMessage.Show("Table reactivated.");
         }
 
         private void DeleteSelectedTablePermanently_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TableMasterDelete, "delete tables"))
+                return;
+
             if (TablesDataGrid.SelectedItem is not DiningTable selectedTable)
             {
-                MessageBox.Show("Select a table first.");
+                AppMessage.Show("Select a table first.");
                 return;
             }
 
-            var confirm = MessageBox.Show(
+            var confirm = AppMessage.Show(
                 $"Remove table '{selectedTable.TableName}' permanently? It will no longer appear anywhere in the app. (Existing bill history that references it is kept.)",
                 "Confirm Delete",
                 MessageBoxButton.YesNo);
@@ -1278,7 +1446,7 @@ namespace POSGardenia
             LoadTables();
             LoadPosTables();
 
-            MessageBox.Show("Table deleted.");
+            AppMessage.Show("Table deleted.");
         }
 
         // -----------------------------
@@ -1311,17 +1479,20 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load reports.\n" + ex.Message);
+                AppMessage.Show("Failed to load reports.\n" + ex.Message);
             }
         }
 
         private void LoadSingleDateReport_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsLoad, "load the report of another date"))
+                return;
+
             try
             {
                 if (ReportDatePicker.SelectedDate == null)
                 {
-                    MessageBox.Show("Select a report date.");
+                    AppMessage.Show("Select a report date.");
                     return;
                 }
 
@@ -1329,7 +1500,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load single date report.\n" + ex.Message);
+                AppMessage.Show("Failed to load single date report.\n" + ex.Message);
             }
         }
 
@@ -1364,7 +1535,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to refresh views.\n" + ex.Message);
+                AppMessage.Show("Failed to refresh views.\n" + ex.Message);
             }
         }
 
@@ -1413,7 +1584,7 @@ namespace POSGardenia
             {
                 if (billId <= 0)
                 {
-                    MessageBox.Show("Invalid bill id.");
+                    AppMessage.Show("Invalid bill id.");
                     return;
                 }
 
@@ -1445,7 +1616,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load bill into POS cart.\n" + ex.Message);
+                AppMessage.Show("Failed to load bill into POS cart.\n" + ex.Message);
             }
         }
 
@@ -1467,7 +1638,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load selected bill into POS.\n" + ex.Message);
+                AppMessage.Show("Failed to load selected bill into POS.\n" + ex.Message);
             }
         }
 
@@ -1486,11 +1657,17 @@ namespace POSGardenia
 
         private void OpenSelectedBillForSettlement_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesSettle, "open a bill for settlement"))
+                return;
+
+            if (!RequireAccess(AppPermissions.Pos, "open POS"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
                 {
-                    MessageBox.Show("Select an open bill first.");
+                    AppMessage.Show("Select an open bill first.");
                     return;
                 }
 
@@ -1506,7 +1683,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to open bill for settlement.\n" + ex.Message);
+                AppMessage.Show("Failed to open bill for settlement.\n" + ex.Message);
             }
         }
         private void LoadExpensesForSelectedDate()
@@ -1518,14 +1695,18 @@ namespace POSGardenia
 
                 var expenses = _expenseRepository.GetByDate(reportDate);
                 decimal totalExpenses = _expenseRepository.GetTotalByDate(reportDate);
+                decimal stockPurchases = _expenseRepository.GetStockPurchaseTotalByDate(reportDate);
 
                 ExpensesDataGrid.ItemsSource = null;
                 ExpensesDataGrid.ItemsSource = expenses;
 
-                TotalExpenseTextBlock.Text = $"Total Expenses: {totalExpenses:F2}";
+                // the two are shown apart: expenses come off Net Sales, stock purchases do not
+                TotalExpenseTextBlock.Text = $"Expenses: {totalExpenses - stockPurchases:F2}";
+                StockPurchaseTotalTextBlock.Text = $"Stock purchases: {stockPurchases:F2}  (not in Net Sales)";
 
+                // Net Sales = sales minus the expenses, except what was spent buying stock
                 decimal sales = _paymentRepository.GetSalesTotalBySingleDate(reportDate);
-                decimal net = sales - totalExpenses;
+                decimal net = sales - _expenseRepository.GetDeductibleTotalByDate(reportDate);
 
                 NetSalesTextBlock.Text = net.ToString("F2");
                 NetSalesTextBlock.Foreground = net < 0
@@ -1534,12 +1715,15 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load expenses.\n" + ex.Message);
+                AppMessage.Show("Failed to load expenses.\n" + ex.Message);
             }
         }
 
         private void AddExpenseButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 var selectedDate = ReportDatePicker.SelectedDate ?? DateTime.Today;
@@ -1549,13 +1733,13 @@ namespace POSGardenia
 
                 if (string.IsNullOrWhiteSpace(description))
                 {
-                    MessageBox.Show("Enter expense description.");
+                    AppMessage.Show("Enter expense description.");
                     return;
                 }
 
                 if (!decimal.TryParse(ExpenseAmountTextBox.Text?.Trim(), out decimal amount) || amount <= 0)
                 {
-                    MessageBox.Show("Enter valid amount.");
+                    AppMessage.Show("Enter valid amount.");
                     return;
                 }
 
@@ -1587,7 +1771,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error: " + ex.Message);
+                AppMessage.Show("Error: " + ex.Message);
             }
         }
         private void ClearProductForm()
@@ -1606,7 +1790,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to clear product form.\n" + ex.Message);
+                AppMessage.Show("Failed to clear product form.\n" + ex.Message);
             }
         }
 
@@ -1616,7 +1800,7 @@ namespace POSGardenia
             {
                 if (selectedProduct == null)
                 {
-                    MessageBox.Show("Invalid product selection.");
+                    AppMessage.Show("Invalid product selection.");
                     return;
                 }
 
@@ -1633,6 +1817,7 @@ namespace POSGardenia
                 CategoryComboBox.SelectedItem = matchingCategory;
 
                 LoadMainItemOptions();
+                _packFilledFor = 0;
 
                 bool tracked = selectedProduct.StockItemId.HasValue;
                 TrackStockCheckBox.IsChecked = tracked;
@@ -1646,7 +1831,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load product into form.\n" + ex.Message);
+                AppMessage.Show("Failed to load product into form.\n" + ex.Message);
             }
         }
 
@@ -1661,7 +1846,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to select product.\n" + ex.Message);
+                AppMessage.Show("Failed to select product.\n" + ex.Message);
             }
         }
 
@@ -1778,7 +1963,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to render open bill cards.\n" + ex.Message);
+                AppMessage.Show("Failed to render open bill cards.\n" + ex.Message);
             }
         }
 
@@ -1788,7 +1973,7 @@ namespace POSGardenia
             {
                 if (selectedBill == null)
                 {
-                    MessageBox.Show("Invalid bill selection.");
+                    AppMessage.Show("Invalid bill selection.");
                     return;
                 }
 
@@ -1826,7 +2011,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to select bill card.\n" + ex.Message);
+                AppMessage.Show("Failed to select bill card.\n" + ex.Message);
             }
         }
 
@@ -1846,7 +2031,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to reload current bill into cart.\n" + ex.Message);
+                AppMessage.Show("Failed to reload current bill into cart.\n" + ex.Message);
             }
         }
 
@@ -1858,7 +2043,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load default report date.\n" + ex.Message);
+                AppMessage.Show("Failed to load default report date.\n" + ex.Message);
             }
         }
 
@@ -1882,7 +2067,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to select current bill in POS dropdown.\n" + ex.Message);
+                AppMessage.Show("Failed to select current bill in POS dropdown.\n" + ex.Message);
             }
         }
 
@@ -1920,7 +2105,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to sync tables tab.\n" + ex.Message);
+                AppMessage.Show("Failed to sync tables tab.\n" + ex.Message);
             }
         }
 
@@ -1987,7 +2172,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load app settings.\n" + ex.Message);
+                AppMessage.Show("Failed to load app settings.\n" + ex.Message);
                 _appSettings = new AppSettings();
             }
         }
@@ -2029,11 +2214,14 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load printers.\n" + ex.Message);
+                AppMessage.Show("Failed to load printers.\n" + ex.Message);
             }
         }
         private void ChooseDailyReportFolder_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             try
             {
                 var dialog = new Microsoft.Win32.OpenFolderDialog
@@ -2052,12 +2240,15 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to choose daily report folder.\n" + ex.Message);
+                AppMessage.Show("Failed to choose daily report folder.\n" + ex.Message);
             }
         }
 
         private void SaveDailyReportSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             try
             {
                 string folder = DailyReportFolderTextBox.Text?.Trim() ?? "";
@@ -2065,13 +2256,13 @@ namespace POSGardenia
 
                 if (string.IsNullOrWhiteSpace(folder))
                 {
-                    MessageBox.Show("Select daily report folder.");
+                    AppMessage.Show("Select daily report folder.");
                     return;
                 }
 
                 if (!TimeSpan.TryParse(reportTime, out _))
                 {
-                    MessageBox.Show("Enter valid report time. Example: 23:00");
+                    AppMessage.Show("Enter valid report time. Example: 23:00");
                     return;
                 }
 
@@ -2084,11 +2275,11 @@ namespace POSGardenia
 
                 StartDailyReportTimer();
 
-                MessageBox.Show("Daily report settings saved.");
+                AppMessage.Show("Daily report settings saved.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save daily report settings.\n" + ex.Message);
+                AppMessage.Show("Failed to save daily report settings.\n" + ex.Message);
             }
         }
 
@@ -2096,6 +2287,9 @@ namespace POSGardenia
         // otherwise asks where to save it. It is opened afterwards so it can be checked or printed.
         private void SaveReportPdf_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsPdf, "save the report as PDF"))
+                return;
+
             try
             {
                 DateTime date = ReportDatePicker.SelectedDate ?? DateTime.Today;
@@ -2130,17 +2324,20 @@ namespace POSGardenia
                 }
                 catch
                 {
-                    MessageBox.Show("The PDF was saved here:\n" + filePath);
+                    AppMessage.Show("The PDF was saved here:\n" + filePath);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Could not save the PDF.\n" + ex.Message);
+                AppMessage.Show("Could not save the PDF.\n" + ex.Message);
             }
         }
 
         private void GenerateTodayReport_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsReports, "change daily report settings"))
+                return;
+
             GenerateDailyReportForDate(DateTime.Today, showMessage: true);
         }
 
@@ -2166,7 +2363,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to start daily report timer.\n" + ex.Message);
+                AppMessage.Show("Failed to start daily report timer.\n" + ex.Message);
             }
         }
 
@@ -2238,7 +2435,7 @@ namespace POSGardenia
                 if (_appSettings == null || string.IsNullOrWhiteSpace(_appSettings.DailyReportFolderPath))
                 {
                     if (showMessage)
-                        MessageBox.Show("Daily report folder is not selected.");
+                        AppMessage.Show("Daily report folder is not selected.");
                     return;
                 }
 
@@ -2248,25 +2445,28 @@ namespace POSGardenia
                     $"Daily report generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{filePath}";
 
                 if (showMessage)
-                    MessageBox.Show("Daily report generated successfully.");
+                    AppMessage.Show("Daily report generated successfully.");
             }
             catch (Exception ex)
             {
                 DailyReportStatusTextBlock.Text = "Daily report failed: " + ex.Message;
 
                 if (showMessage)
-                    MessageBox.Show("Daily report failed.\n" + ex.Message);
+                    AppMessage.Show("Daily report failed.\n" + ex.Message);
             }
         }
 
         private void SavePrinterSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsDevices, "change printer settings"))
+                return;
+
             try
             {
                 if (ReceiptPrinterComboBox.SelectedItem is not string selectedPrinter ||
                     string.IsNullOrWhiteSpace(selectedPrinter))
                 {
-                    MessageBox.Show("Select a printer first.");
+                    AppMessage.Show("Select a printer first.");
                     return;
                 }
 
@@ -2274,11 +2474,11 @@ namespace POSGardenia
                 _settingsService.Save(_appSettings);
 
                 PrinterSettingsStatusTextBlock.Text = $"Saved printer: {selectedPrinter}";
-                MessageBox.Show("Printer settings saved.");
+                AppMessage.Show("Printer settings saved.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save printer settings.\n" + ex.Message);
+                AppMessage.Show("Failed to save printer settings.\n" + ex.Message);
             }
         }
 
@@ -2289,7 +2489,7 @@ namespace POSGardenia
                 if (ReceiptPrinterComboBox.SelectedItem is not string selectedPrinter ||
                     string.IsNullOrWhiteSpace(selectedPrinter))
                 {
-                    MessageBox.Show("Select a printer first.");
+                    AppMessage.Show("Select a printer first.");
                     return;
                 }
 
@@ -2297,7 +2497,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to test printer.\n" + ex.Message);
+                AppMessage.Show("Failed to test printer.\n" + ex.Message);
             }
         }
 
@@ -2308,6 +2508,9 @@ namespace POSGardenia
 
         private void ChooseBackupFolder_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             var dialog = new Microsoft.Win32.OpenFolderDialog
             {
                 Title = "Choose the backup folder on your external drive",
@@ -2329,19 +2532,22 @@ namespace POSGardenia
 
         private void SaveBackupSettings_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             try
             {
                 string folder = BackupFolderTextBox.Text?.Trim() ?? "";
 
                 if (string.IsNullOrWhiteSpace(folder))
                 {
-                    MessageBox.Show("Select backup folder.");
+                    AppMessage.Show("Select backup folder.");
                     return;
                 }
 
                 if (!int.TryParse(BackupIntervalTextBox.Text?.Trim(), out int minutes) || minutes <= 0)
                 {
-                    MessageBox.Show("Enter valid backup interval minutes.");
+                    AppMessage.Show("Enter valid backup interval minutes.");
                     return;
                 }
 
@@ -2356,18 +2562,21 @@ namespace POSGardenia
                 RefreshBackupBanner();
 
                 var risk = BackupService.DescribeFolderRisk(folder, DatabaseHelper.GetDatabasePath());
-                MessageBox.Show(risk == null
+                AppMessage.Show(risk == null
                     ? "Backup settings saved."
                     : "Backup settings saved.\n\nNote: " + risk);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to save backup settings.\n" + ex.Message);
+                AppMessage.Show("Failed to save backup settings.\n" + ex.Message);
             }
         }
 
         private void BackupNow_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.SettingsBackup, "change backup settings or run a backup"))
+                return;
+
             RunBackup(showMessage: true, force: true);
         }
 
@@ -2393,7 +2602,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to start auto backup.\n" + ex.Message);
+                AppMessage.Show("Failed to start auto backup.\n" + ex.Message);
             }
         }
 
@@ -2419,7 +2628,7 @@ namespace POSGardenia
                 RefreshBackupBanner();
 
                 if (showMessage)
-                    MessageBox.Show(result.Warning == null
+                    AppMessage.Show(result.Warning == null
                         ? "Backup completed successfully."
                         : "Backup completed.\n\n" + result.Warning);
             }
@@ -2430,7 +2639,7 @@ namespace POSGardenia
                 RefreshBackupBanner();
 
                 if (showMessage)
-                    MessageBox.Show("Backup failed.\n" + ex.Message);
+                    AppMessage.Show("Backup failed.\n" + ex.Message);
             }
         }
 
@@ -2447,6 +2656,9 @@ namespace POSGardenia
 
         private void BackupWarningBanner_Tapped(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.Settings, "open Settings"))
+                return;
+
             MainTabControl.SelectedItem = SettingsTabItem;
         }
 
@@ -2465,15 +2677,18 @@ namespace POSGardenia
      
         private void DeleteExpense_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 if (ExpensesDataGrid.SelectedItem is not Expense exp)
                 {
-                    MessageBox.Show("Select expense.");
+                    AppMessage.Show("Select expense.");
                     return;
                 }
 
-                var confirm = MessageBox.Show(
+                var confirm = AppMessage.Show(
                     "Delete this expense?",
                     "Confirm",
                     MessageBoxButton.YesNo);
@@ -2488,17 +2703,20 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                AppMessage.Show(ex.Message);
             }
         }
 
         private void EditExpense_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.ReportsExpenses, "add, change or delete expenses"))
+                return;
+
             try
             {
                 if (ExpensesDataGrid.SelectedItem is not Expense exp)
                 {
-                    MessageBox.Show("Select expense.");
+                    AppMessage.Show("Select expense.");
                     return;
                 }
 
@@ -2509,7 +2727,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                AppMessage.Show(ex.Message);
             }
         }
 
@@ -2519,11 +2737,11 @@ namespace POSGardenia
             {
                 if (CartDataGrid.SelectedItem is not PosCartLine item)
                 {
-                    MessageBox.Show("Select item.");
+                    AppMessage.Show("Select item.");
                     return;
                 }
 
-                var confirm = MessageBox.Show(
+                var confirm = AppMessage.Show(
                     "Cancel selected item?",
                     "Confirm",
                     MessageBoxButton.YesNo);
@@ -2550,21 +2768,24 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to cancel item.\n" + ex.Message);
+                AppMessage.Show("Failed to cancel item.\n" + ex.Message);
             }
         }
 
         private void VoidBill_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.TablesVoid, "void bills"))
+                return;
+
             try
             {
                 if (_selectedTablesBill == null)
                 {
-                    MessageBox.Show("Select bill.");
+                    AppMessage.Show("Select bill.");
                     return;
                 }
 
-                var confirm = MessageBox.Show(
+                var confirm = AppMessage.Show(
                     "Void this bill?",
                     "Confirm",
                     MessageBoxButton.YesNo);
@@ -2579,7 +2800,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                AppMessage.Show(ex.Message);
             }
         }
 
@@ -2602,7 +2823,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to search bill history by date.\n" + ex.Message);
+                AppMessage.Show("Failed to search bill history by date.\n" + ex.Message);
             }
         }
 
@@ -2614,7 +2835,7 @@ namespace POSGardenia
 
                 if (string.IsNullOrWhiteSpace(searchText))
                 {
-                    MessageBox.Show("Enter bill number or internal bill id.");
+                    AppMessage.Show("Enter bill number or internal bill id.");
                     return;
                 }
 
@@ -2629,7 +2850,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to search bill history by number.\n" + ex.Message);
+                AppMessage.Show("Failed to search bill history by number.\n" + ex.Message);
             }
         }
 
@@ -2650,23 +2871,26 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to load bill history items.\n" + ex.Message);
+                AppMessage.Show("Failed to load bill history items.\n" + ex.Message);
             }
         }
 
         private void ReprintSelectedBillReceipt_Click(object sender, RoutedEventArgs e)
         {
+            if (!RequireAccess(AppPermissions.HistoryReprint, "reprint receipts"))
+                return;
+
             try
             {
                 if (_selectedHistoryBill == null)
                 {
-                    MessageBox.Show("Select a bill first.");
+                    AppMessage.Show("Select a bill first.");
                     return;
                 }
 
                 if (_selectedHistoryBill.Status == "VOID")
                 {
-                    var confirm = MessageBox.Show(
+                    var confirm = AppMessage.Show(
                         "This bill is VOID. Reprint anyway?",
                         "Confirm Reprint",
                         MessageBoxButton.YesNo);
@@ -2684,7 +2908,7 @@ namespace POSGardenia
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to reprint receipt.\n" + ex.Message);
+                AppMessage.Show("Failed to reprint receipt.\n" + ex.Message);
             }
         }
 

@@ -15,6 +15,8 @@ namespace POSGardenia.Services
 
         private readonly StockItemRepository _stockItemRepository = new();
         private readonly StockMovementRepository _stockMovementRepository = new();
+        private readonly ExpenseRepository _expenseRepository = new();
+        private readonly StockOpeningCountRepository _openingCountRepository = new();
 
         // -----------------------------
         // Bill hooks (called inside the bill's own transaction)
@@ -134,12 +136,54 @@ namespace POSGardenia.Services
             return id;
         }
 
-        public void ReceiveStock(int stockItemId, decimal quantity, string? note, DateTime date)
+        // purchaseAmount (optional): what was paid for it. It is saved with the stock, in one step, as that day's
+        // expense marked "stock purchase": listed with the expenses and in the daily report, but not taken off Net Sales.
+        public void ReceiveStock(int stockItemId, decimal quantity, string? note, DateTime date, decimal? purchaseAmount = null)
         {
             if (quantity <= 0)
                 throw new Exception("Quantity received must be greater than zero.");
 
-            WriteManualMovement(stockItemId, StockMovementTypes.Restock, quantity, note, date);
+            if (purchaseAmount.HasValue && purchaseAmount.Value <= 0)
+                throw new Exception("Purchase amount must be greater than zero (or leave it blank).");
+
+            if (!purchaseAmount.HasValue)
+            {
+                WriteManualMovement(stockItemId, StockMovementTypes.Restock, quantity, note, date);
+                return;
+            }
+
+            var item = _stockItemRepository.GetById(stockItemId)
+                ?? throw new Exception("Stock item not found.");
+
+            string dateText = date.ToString(DateFormat);
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            _stockMovementRepository.Insert(connection, transaction, new StockMovement
+            {
+                StockItemId = stockItemId,
+                MovementDate = dateText,
+                MovementType = StockMovementTypes.Restock,
+                QuantityChange = quantity,
+                Note = note
+            });
+
+            string description = $"Stock purchase: {item.Name} {quantity:0.##} {item.TrackingUnit}";
+            if (!string.IsNullOrWhiteSpace(note))
+                description += $" - {note.Trim()}";
+
+            _expenseRepository.Add(connection, transaction, new Expense
+            {
+                ExpenseDate = dateText,
+                Description = description,
+                Amount = purchaseAmount.Value,
+                CreatedAt = DateTime.Now,
+                IsStockPurchase = true
+            });
+
+            transaction.Commit();
         }
 
         // Signed: positive adds stock, negative removes it (count correction).
@@ -193,6 +237,93 @@ namespace POSGardenia.Services
         }
 
         // -----------------------------
+        // Opening count (Stock Items tab -> that day's Opening on Daily Stock)
+        // -----------------------------
+
+        // Counts an item by hand for today: counted is the amount in the item's own unit (ml / bottle / unit).
+        // It becomes today's Opening. The ledger gets one "OpeningCount" entry for the gap between the books
+        // (everything before today) and the count; counting again only adds the further change, so history is kept.
+        // Difference (saved with the day) = the counted opening - what the books closed with yesterday.
+        public void SaveOpeningCount(int stockItemId, DateTime date, decimal counted)
+        {
+            if (date.Date != DateTime.Today)
+                throw new Exception("The opening count is for today only.");
+
+            if (counted < 0)
+                throw new Exception("The counted amount cannot be negative.");
+
+            string day = date.ToString(DateFormat);
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            if (_stockItemRepository.GetById(stockItemId) == null)
+                throw new Exception("Stock item not found.");
+
+            decimal previousClose = _openingCountRepository.SumMovementsBefore(connection, transaction, stockItemId, day);
+            decimal alreadyMoved = _openingCountRepository.SumOpeningCountMovements(connection, transaction, stockItemId, day);
+            decimal change = (counted - previousClose) - alreadyMoved;
+
+            if (change != 0)
+                WriteOpeningCountMovement(connection, transaction, stockItemId, day, change, $"Opening count {counted:0.##}");
+
+            _openingCountRepository.Save(connection, transaction, new StockOpeningCount
+            {
+                StockItemId = stockItemId,
+                CountDate = day,
+                CountedQuantity = counted,
+                PreviousClose = previousClose,
+                Difference = counted - previousClose
+            });
+
+            transaction.Commit();
+        }
+
+        // Takes today's count away: the opening goes back to what the books say.
+        public void ClearOpeningCount(int stockItemId, DateTime date)
+        {
+            if (date.Date != DateTime.Today)
+                throw new Exception("The opening count is for today only.");
+
+            string day = date.ToString(DateFormat);
+
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            decimal alreadyMoved = _openingCountRepository.SumOpeningCountMovements(connection, transaction, stockItemId, day);
+            if (alreadyMoved != 0)
+                WriteOpeningCountMovement(connection, transaction, stockItemId, day, -alreadyMoved, "Opening count removed");
+
+            _openingCountRepository.Delete(connection, transaction, stockItemId, day);
+
+            transaction.Commit();
+        }
+
+        public StockOpeningCount? GetOpeningCount(int stockItemId, DateTime date)
+        {
+            using var connection = DatabaseHelper.GetConnection();
+            connection.Open();
+
+            return _openingCountRepository.Get(connection, stockItemId, date.ToString(DateFormat));
+        }
+
+        private void WriteOpeningCountMovement(
+            SqliteConnection connection, SqliteTransaction transaction,
+            int stockItemId, string day, decimal change, string note)
+        {
+            _stockMovementRepository.Insert(connection, transaction, new StockMovement
+            {
+                StockItemId = stockItemId,
+                MovementDate = day,
+                MovementType = StockMovementTypes.OpeningCount,
+                QuantityChange = change,
+                Note = note
+            });
+        }
+
+        // -----------------------------
         // Inventory tab support
         // -----------------------------
 
@@ -200,12 +331,21 @@ namespace POSGardenia.Services
 
         public List<StockItem> GetActiveStockItems() => _stockItemRepository.GetActive();
 
+        public StockItem? GetStockItem(int id) => _stockItemRepository.GetById(id);
+
         // Sets what one full bottle / pack of a main item holds (e.g. 750 ml per bottle, 20 units per pack).
         // The name is not chosen: ml -> "bottle", unit -> "pack". A null size removes it.
-        public void SetPack(int stockItemId, decimal? packSize)
+        // extraPerPack (liquor only): ml each bottle gives beyond its size, e.g. 25. Blank = none.
+        public void SetPack(int stockItemId, decimal? packSize, decimal? extraPerPack = null)
         {
             if (packSize.HasValue && packSize.Value <= 0)
                 throw new Exception("Bottle / pack size must be greater than zero (or leave it blank to remove it).");
+
+            if (extraPerPack.HasValue && extraPerPack.Value < 0)
+                throw new Exception("Extra per bottle cannot be negative.");
+
+            if (extraPerPack == 0)
+                extraPerPack = null;
 
             var item = _stockItemRepository.GetById(stockItemId)
                 ?? throw new Exception("Stock item not found.");
@@ -213,13 +353,19 @@ namespace POSGardenia.Services
             if (packSize.HasValue && PackFormatter.IsCountedInBottles(item.TrackingUnit))
                 throw new Exception("Items counted in bottles do not need a bottle / pack size.");
 
+            if (extraPerPack.HasValue && !string.Equals(item.TrackingUnit, "ml", StringComparison.OrdinalIgnoreCase))
+                throw new Exception("Extra per bottle only applies to liquor counted in ml.");
+
+            if (extraPerPack.HasValue && !packSize.HasValue)
+                throw new Exception("Set the bottle size before the extra per bottle.");
+
             string? name = packSize.HasValue ? PackFormatter.PackNameFor(item.TrackingUnit) : null;
 
             using var connection = DatabaseHelper.GetConnection();
             connection.Open();
             using var transaction = connection.BeginTransaction();
 
-            _stockItemRepository.UpdatePack(connection, transaction, stockItemId, name, packSize);
+            _stockItemRepository.UpdatePack(connection, transaction, stockItemId, name, packSize, extraPerPack);
 
             transaction.Commit();
         }
